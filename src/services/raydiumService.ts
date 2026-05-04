@@ -16,6 +16,7 @@ import {
   ComputeBudgetProgram,
   Connection,
   Keypair,
+  LAMPORTS_PER_SOL,
   PublicKey,
   SystemProgram,
   type Commitment,
@@ -518,6 +519,28 @@ async function executeV0WithPlatformFeeGuard(
   const rebuilt = await built.builder.buildV0({});
   const { txId } = await rebuilt.execute({ sendAndConfirm: true });
   return txId;
+}
+
+/** Raydium CPMM charges this SOL when **creating** a new pool; adding to an existing pool does not. */
+export const RAYDIUM_CPMM_NEW_POOL_LAMPORTS = Math.round(0.15 * LAMPORTS_PER_SOL);
+
+/**
+ * Whether the next add-liquidity action will call `createPool` (Raydium takes {@link RAYDIUM_CPMM_NEW_POOL_LAMPORTS}).
+ * Uses the same detection as {@link addLiquidity}.
+ */
+export async function previewWillCreateNewCpmmPool(params: {
+  connection: Connection;
+  wallet: WalletContextState;
+  baseMint: PublicKey;
+  quoteCurrency: QuoteCurrency;
+}): Promise<boolean> {
+  const owner = params.wallet.publicKey;
+  if (!owner) throw new Error('Wallet not connected');
+  const raydium = await getRaydium(params.connection, owner, params.wallet);
+  const quoteMintStr = params.quoteCurrency === 'WSOL' ? env.wsolMint : env.getUsdcMint();
+  const quoteMint = new PublicKey(quoteMintStr);
+  const state = await detectPoolState(raydium, params.connection, params.baseMint, quoteMint, owner);
+  return state.kind === 'no_pool';
 }
 
 export async function addLiquidity(params: {

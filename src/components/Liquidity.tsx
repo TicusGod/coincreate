@@ -17,7 +17,7 @@ import { env } from '../config/env';
 import { buildFeeTransferInstruction, getFeeLamports } from '../services/feeService';
 import { confirmTransactionResilient, sendRawTransactionWithSimulationFallback } from '../services/solanaTxHelpers';
 import { ipfsToHttp } from '../services/ipfsService';
-import type { UserPoolPosition } from '../services/raydiumService';
+import { previewWillCreateNewCpmmPool, RAYDIUM_CPMM_NEW_POOL_LAMPORTS, type UserPoolPosition } from '../services/raydiumService';
 
 type WalletTokenOption = { mint: string; symbol: string; label: string; uiAmount: number; imageUrl: string | null };
 
@@ -525,7 +525,8 @@ export default function Liquidity({
   onInitialSelectConsumed: () => void;
 }) {
   const { connection } = useConnection();
-  const { publicKey, connected } = useWallet();
+  const wallet = useWallet();
+  const { publicKey, connected } = wallet;
   const { connect, solBalance } = useSolanaWallet();
   const { addLiquidity, removeLiquidity, userPools, refreshUserPools, isLoading } = useRaydium();
 
@@ -742,8 +743,16 @@ export default function Liquidity({
       return;
     }
     try {
+      const willCreatePool = await previewWillCreateNewCpmmPool({
+        connection,
+        wallet,
+        baseMint: new PublicKey(selectedMint),
+        quoteCurrency: 'WSOL',
+      });
       const solLamports = Math.ceil(quoteDec.mul(LAMPORTS_PER_SOL).toNumber());
-      const minLamports = getFeeLamports('add_liquidity', 1, publicKey) + solLamports + ADD_LIQ_RESERVE_LAMPORTS;
+      const raydiumCreateLamports = willCreatePool ? RAYDIUM_CPMM_NEW_POOL_LAMPORTS : 0;
+      const minLamports =
+        getFeeLamports('add_liquidity', 1, publicKey) + solLamports + ADD_LIQ_RESERVE_LAMPORTS + raydiumCreateLamports;
       const balance = await connection.getBalance(publicKey, 'confirmed');
       if (balance < minLamports) {
         toastInsufficientSol(minLamports, balance);
