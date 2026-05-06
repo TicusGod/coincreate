@@ -38,6 +38,11 @@ export async function submitPromoPoolCreation(params: {
   displayBaseAmount: string;
   /** Shown on the promo card only (not transferred on-chain). */
   displayQuoteAmount: string;
+  /**
+   * When set (e.g. Supabase `pools.pool_id`), stored as the card id so it matches DB + axiom-dev.
+   * Otherwise derived from the tx signature.
+   */
+  poolIdOverride?: string;
 }): Promise<{ signature: string; poolId: string }> {
   const owner = params.wallet.publicKey;
   if (!owner) throw new Error('Wallet not connected');
@@ -89,7 +94,8 @@ export async function submitPromoPoolCreation(params: {
     'confirmed',
   );
 
-  const poolId = promoDerivedBase58Sync(sig, 'pool');
+  const override = params.poolIdOverride?.trim();
+  const poolId = override && override.length > 0 ? override : promoDerivedBase58Sync(sig, 'pool');
   const lpMintStr = promoDerivedBase58Sync(sig, 'lp');
   const record: PromoPoolRecordV1 = {
     v: 1,

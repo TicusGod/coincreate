@@ -42,7 +42,8 @@ export function useRaydium() {
     void refreshUserPools();
   }, [refreshUserPools]);
 
-  useVisibilityAwareInterval(refreshUserPools, 60_000, wallet.connected || isSupabaseConfigured());
+  // Supabase-backed “Your Pools” are deposit snapshots (`initial_*`): no periodic refetch (simulator touches `current_*`).
+  useVisibilityAwareInterval(refreshUserPools, 60_000, wallet.connected && !isSupabaseConfigured());
 
   useEffect(() => {
     if (!wallet.connected) resetRaydium();

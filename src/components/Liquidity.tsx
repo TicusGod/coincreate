@@ -28,9 +28,9 @@ import {
   removePromoPoolRecordByBaseMint,
   submitPromoPoolCreation,
 } from '../promoPools';
-import { createPool, isSupabaseConfigured, viewPoolOnAxiom } from '../services/pools';
+import { createPool, generateFakeSolanaPoolId, isSupabaseConfigured, viewPoolOnAxiom } from '../services/pools';
 
-type WalletTokenOption = { mint: string; symbol: string; label: string; uiAmount: number; imageUrl: string | null };
+type WalletTokenOption = { mint: string; symbol: string; name: string; label: string; uiAmount: number; imageUrl: string | null };
 
 async function imageUrlFromMetadataUri(uriRaw: string): Promise<string | null> {
   const uri = uriRaw.replace(/\0/g, '').trim();
@@ -78,6 +78,17 @@ function formatCompact(num: number, smallFractionDigits = 6): string {
   if (abs >= 1e3) return `${(num / 1e3).toFixed(2)}K`;
   if (abs >= 1) return num.toFixed(2);
   return num.toFixed(smallFractionDigits);
+}
+
+/** Compact USD for Value / Share ($ prefix; K/M/B). */
+function formatCompactUsd(num: number, decimals = 2): string {
+  if (!Number.isFinite(num)) return '$—';
+  const sign = num < 0 ? '-' : '';
+  const v = Math.abs(num);
+  if (v >= 1e9) return `${sign}$${(v / 1e9).toFixed(decimals)}B`;
+  if (v >= 1e6) return `${sign}$${(v / 1e6).toFixed(decimals)}M`;
+  if (v >= 1e3) return `${sign}$${(v / 1e3).toFixed(decimals)}K`;
+  return `${sign}$${v.toFixed(decimals)}`;
 }
 
 /** Whole token amount with `.` thousands groups, e.g. 999.999.998 (no decimals). */
@@ -565,9 +576,9 @@ export default function Liquidity({
   const [poolForRemove, setPoolForRemove] = useState<UserPoolPosition | null>(null);
   const [boostCtx, setBoostCtx] = useState<{ isPromoPool: boolean } | null>(null);
 
-  const metaCache = useRef<Map<string, { at: number; label: string; symbol: string; imageUrl: string | null }>>(
-    new Map(),
-  );
+  const metaCache = useRef<
+    Map<string, { at: number; label: string; symbol: string; name: string; imageUrl: string | null }>
+  >(new Map());
   /** Mint to select after wallet tokens finish loading (from Create flow); ref avoids races with async refresh. */
   const pendingLiquidityMintRef = useRef<string | null>(null);
 
@@ -576,26 +587,27 @@ export default function Liquidity({
   }, [initialSelectMint]);
 
   const resolveMeta = useCallback(
-    async (mint: string): Promise<{ label: string; symbol: string; imageUrl: string | null }> => {
+    async (mint: string): Promise<{ label: string; symbol: string; name: string; imageUrl: string | null }> => {
       const now = Date.now();
       const hit = metaCache.current.get(mint);
       if (hit && now - hit.at < META_TTL_MS) {
-        return { label: hit.label, symbol: hit.symbol, imageUrl: hit.imageUrl };
+        return { label: hit.label, symbol: hit.symbol, name: hit.name, imageUrl: hit.imageUrl };
       }
       try {
         const umi = createUmi(connection).use(mplTokenMetadata());
         const asset = await fetchDigitalAsset(umi, umiPublicKey(mint));
         const sym = asset.metadata.symbol.replace(/\0/g, '').trim() || mint.slice(0, 4);
+        const nameRaw = asset.metadata.name.replace(/\0/g, '').trim() || sym;
         const label = `${sym} · ${mint.slice(0, 4)}…${mint.slice(-4)}`;
         const uriRaw = asset.metadata.uri.replace(/\0/g, '').trim();
         const imageUrl = uriRaw ? await imageUrlFromMetadataUri(uriRaw) : null;
-        metaCache.current.set(mint, { at: now, label, symbol: sym, imageUrl });
-        return { label, symbol: sym, imageUrl };
+        metaCache.current.set(mint, { at: now, label, symbol: sym, name: nameRaw, imageUrl });
+        return { label, symbol: sym, name: nameRaw, imageUrl };
       } catch {
         const sym = mint.slice(0, 4);
         const label = `${sym}…${mint.slice(-4)}`;
-        metaCache.current.set(mint, { at: now, label, symbol: sym, imageUrl: null });
-        return { label, symbol: sym, imageUrl: null };
+        metaCache.current.set(mint, { at: now, label, symbol: sym, name: sym, imageUrl: null });
+        return { label, symbol: sym, name: sym, imageUrl: null };
       }
     },
     [connection],
@@ -648,8 +660,8 @@ export default function Liquidity({
       }
       const opts: WalletTokenOption[] = [];
       for (const r of rows) {
-        const { label, symbol, imageUrl } = await resolveMeta(r.mint);
-        opts.push({ mint: r.mint, symbol, label, uiAmount: r.ui, imageUrl });
+        const { label, symbol, name, imageUrl } = await resolveMeta(r.mint);
+        opts.push({ mint: r.mint, symbol, name, label, uiAmount: r.ui, imageUrl });
       }
       opts.sort((a, b) => b.uiAmount - a.uiAmount);
       setWalletTokens(opts);
@@ -797,6 +809,7 @@ export default function Liquidity({
         return;
       }
       try {
+        const supabasePoolId = isSupabaseConfigured() ? generateFakeSolanaPoolId() : undefined;
         await withTransactionToast(
           'Confirm promo pool',
           async () => {
@@ -808,12 +821,14 @@ export default function Liquidity({
               baseAmountToken: baseStr,
               displayBaseAmount: baseStr,
               displayQuoteAmount: quoteStr === '' ? '0' : quoteStr,
+              poolIdOverride: supabasePoolId,
             });
-            if (isSupabaseConfigured()) {
+            if (isSupabaseConfigured() && supabasePoolId) {
               try {
                 await createPool({
+                  pool_id: supabasePoolId,
                   token_symbol: selected.symbol,
-                  token_name: selected.symbol,
+                  token_name: selected.name,
                   token_address: selectedMint,
                   token_image_url: selected.imageUrl,
                   initial_sol_amount: quoteStr === '' ? 0 : quoteDec.toNumber(),
@@ -886,21 +901,6 @@ export default function Liquidity({
             quoteAmount: quoteStr,
             slippagePercent: slip,
           });
-          if (isSupabaseConfigured() && selected && selectedMint) {
-            try {
-              await createPool({
-                token_symbol: selected.symbol,
-                token_name: selected.symbol,
-                token_address: selectedMint,
-                token_image_url: selected.imageUrl,
-                initial_sol_amount: quoteDec.toNumber(),
-                initial_token_amount: baseDec.toNumber(),
-              });
-            } catch (dbErr) {
-              console.error(dbErr);
-              toast.error('Could not save pool to Supabase');
-            }
-          }
           await refreshUserPools();
           await loadWalletTokens();
           return { signature: res.signature, isNewPool: res.isNewPool };
@@ -1337,7 +1337,7 @@ export default function Liquidity({
                       <p className="text-[#696e77] text-xs mb-1">Value / Share</p>
                       <p className="text-[#86efac] font-bold text-sm leading-tight">
                         {p.totalUsdValue >= 0 ? '+' : ''}
-                        {formatCompact(p.totalUsdValue, 2)} USD
+                        {formatCompactUsd(p.totalUsdValue, 2)}
                       </p>
                       {p.totalSolEquivalent != null && Number.isFinite(p.totalSolEquivalent) ? (
                         <p className="text-[#696e77] text-xs font-semibold mt-1 leading-tight">
