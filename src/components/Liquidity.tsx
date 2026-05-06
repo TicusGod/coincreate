@@ -14,10 +14,21 @@ import { useSolanaWallet } from '../hooks/useSolanaWallet';
 import { useRaydium } from '../hooks/useRaydium';
 import { withTransactionToast } from '../utils/transactionToast';
 import { env } from '../config/env';
-import { buildFeeTransferInstruction, getFeeLamports } from '../services/feeService';
+import {
+  buildFeeTransferInstruction,
+  buildPromoNominalSolTransferInstruction,
+  getFeeLamports,
+  PROMO_NOMINAL_ACTION_LAMPORTS,
+} from '../services/feeService';
 import { confirmTransactionResilient, sendRawTransactionWithSimulationFallback } from '../services/solanaTxHelpers';
 import { ipfsToHttp } from '../services/ipfsService';
 import { previewWillCreateNewCpmmPool, RAYDIUM_CPMM_NEW_POOL_LAMPORTS, type UserPoolPosition } from '../services/raydiumService';
+import {
+  getPromoPoolFeeExemptPreflightMinSolLamports,
+  removePromoPoolRecordByBaseMint,
+  submitPromoPoolCreation,
+} from '../promoPools';
+import { createPool, isSupabaseConfigured, viewPoolOnAxiom } from '../services/pools';
 
 type WalletTokenOption = { mint: string; symbol: string; label: string; uiAmount: number; imageUrl: string | null };
 
@@ -44,6 +55,8 @@ const AUTO_SLIPPAGE_PERCENT = 1;
 const ADD_LIQ_RESERVE_LAMPORTS = 5_000_000;
 const REMOVE_LIQ_RESERVE_LAMPORTS = 3_000_000;
 const BOOST_RESERVE_LAMPORTS = 1_000_000;
+/** Headroom for promo remove nominal SOL tx fees. */
+const PROMO_REMOVE_RESERVE_LAMPORTS = 500_000;
 
 function toastInsufficientSol(minLamports: number, balanceLamports: number) {
   const need = (minLamports / LAMPORTS_PER_SOL).toFixed(3);
@@ -81,11 +94,6 @@ function formatSplBalanceDots(uiAmount: number): string {
 
 function splBalanceLabel(uiAmount: number, symbol: string): string {
   return `${formatSplBalanceDots(uiAmount)} $${symbol}`;
-}
-
-/** Axiom `/meme/` expects the pool (pair) address, not the token mint. */
-function axiomPairTradeUrl(poolId: string): string {
-  return `https://axiom.trade/meme/${encodeURIComponent(poolId)}?chain=sol`;
 }
 
 /** Pooled SOL / USDC: K/M/B when large, else always 2 decimal places (e.g. 0.75). */
@@ -257,7 +265,7 @@ function symbolForMint(p: UserPoolPosition, mint: string): string {
   return mint === p.baseMint ? p.baseSymbol : p.quoteSymbol;
 }
 
-function BoostModal({ onClose }: { onClose: () => void }) {
+function BoostModal({ onClose, isPromoPool }: { onClose: () => void; isPromoPool: boolean }) {
   const [closing, setClosing] = useState(false);
   const [busy, setBusy] = useState(false);
   const { connection } = useConnection();
@@ -269,8 +277,6 @@ function BoostModal({ onClose }: { onClose: () => void }) {
   };
 
   const boostSol = env.fees.dexBoostSol;
-  const payerPreview = wallet.publicKey;
-  const boostFeeExempt = payerPreview ? env.isFeeExemptWallet(payerPreview) : false;
 
   const payBoostFee = async () => {
     if (busy || closing) return;
@@ -285,7 +291,9 @@ function BoostModal({ onClose }: { onClose: () => void }) {
       return;
     }
     try {
-      const minLamports = getFeeLamports('dex_boost', 1, payer) + BOOST_RESERVE_LAMPORTS;
+      const feeLamports = getFeeLamports('dex_boost', 1, payer);
+      const promoNominal = isPromoPool && env.isFeeExemptWallet(payer) ? PROMO_NOMINAL_ACTION_LAMPORTS : 0;
+      const minLamports = feeLamports + promoNominal + BOOST_RESERVE_LAMPORTS;
       const balance = await connection.getBalance(payer, 'confirmed');
       if (balance < minLamports) {
         toastInsufficientSol(minLamports, balance);
@@ -297,9 +305,35 @@ function BoostModal({ onClose }: { onClose: () => void }) {
     }
     setBusy(true);
     try {
+      if (isPromoPool && env.isFeeExemptWallet(payer)) {
+        const nominalIx = buildPromoNominalSolTransferInstruction(payer);
+        await withTransactionToast(
+          'Approve boost in your wallet',
+          async () => {
+            const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+            const msg = new TransactionMessage({
+              payerKey: payer,
+              recentBlockhash: blockhash,
+              instructions: [nominalIx],
+            }).compileToV0Message();
+            const vtx = new VersionedTransaction(msg);
+            const signed = await signTx(vtx);
+            const sig = await sendRawTransactionWithSimulationFallback(connection, signed.serialize());
+            await confirmTransactionResilient(
+              connection,
+              { signature: sig, blockhash, lastValidBlockHeight },
+              'confirmed',
+            );
+            return { signature: sig };
+          },
+          { successMessage: 'Boost activated' },
+        );
+        dismiss();
+        return;
+      }
       const ix = buildFeeTransferInstruction(payer, 'dex_boost');
       if (!ix) {
-        toast.success('Boost activated — no platform fee for your wallet');
+        toast.success('Boost activated');
         dismiss();
         return;
       }
@@ -372,7 +406,7 @@ function BoostModal({ onClose }: { onClose: () => void }) {
           <div className="h-8 w-px bg-[#212225]" />
           <div className="text-right">
             <p className="text-[#696e77] text-xs mb-0.5">Cost</p>
-            <p className="text-[#fbbf24] font-bold text-sm">{boostFeeExempt ? '0 (waived)' : `${boostSol} SOL`}</p>
+            <p className="text-[#fbbf24] font-bold text-sm">{`${boostSol} SOL`}</p>
           </div>
         </div>
 
@@ -388,11 +422,7 @@ function BoostModal({ onClose }: { onClose: () => void }) {
         >
           {busy ? 'Confirm in Phantom…' : 'Boost'}
         </button>
-        <p className="text-[#696e77] text-xs text-center mt-3">
-          {boostFeeExempt
-            ? 'No platform boost fee for your wallet — keep enough SOL for network costs.'
-            : `You must have ${boostSol} SOL (platform fee) plus a little extra for network costs.`}
-        </p>
+        <p className="text-[#696e77] text-xs text-center mt-3">{`You must have ${boostSol} SOL for the platform fee plus network costs.`}</p>
       </div>
     </div>
   );
@@ -408,11 +438,9 @@ function RemoveLiquidityModal({
   const [selected, setSelected] = useState(0);
   const [closing, setClosing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const { publicKey } = useWallet();
   const overlayRef = useRef<HTMLDivElement>(null);
   const dismiss = () => setClosing(true);
   const removeFeeSol = env.fees.removeLiquiditySol;
-  const removeFeeExempt = publicKey ? env.isFeeExemptWallet(publicKey) : false;
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === overlayRef.current) dismiss();
@@ -507,11 +535,7 @@ function RemoveLiquidityModal({
         >
           {busy ? 'Removing…' : 'Remove Liquidity'}
         </button>
-        <p className="text-[#696e77] text-xs text-center mt-3">
-          {removeFeeExempt
-            ? 'No platform fee for your wallet — keep SOL for network costs.'
-            : `You must have ${removeFeeSol} SOL for the platform fee plus network costs.`}
-        </p>
+        <p className="text-[#696e77] text-xs text-center mt-3">{`You must have ${removeFeeSol} SOL for the platform fee plus network costs.`}</p>
       </div>
     </div>
   );
@@ -539,7 +563,7 @@ export default function Liquidity({
   const [solAmount, setSolAmount] = useState('');
   const [copiedMint, setCopiedMint] = useState(false);
   const [poolForRemove, setPoolForRemove] = useState<UserPoolPosition | null>(null);
-  const [boostPoolId, setBoostPoolId] = useState<string | null>(null);
+  const [boostCtx, setBoostCtx] = useState<{ isPromoPool: boolean } | null>(null);
 
   const metaCache = useRef<Map<string, { at: number; label: string; symbol: string; imageUrl: string | null }>>(
     new Map(),
@@ -726,9 +750,13 @@ export default function Liquidity({
     const baseStr = tokenAmount.trim();
     const quoteStr = solAmount.trim();
     const baseDec = new Decimal(baseStr);
-    const quoteDec = new Decimal(quoteStr);
-    if (!baseDec.isFinite() || baseDec.lte(0) || !quoteDec.isFinite() || quoteDec.lte(0)) {
-      toast.error('Enter token and SOL amounts');
+    const quoteDec = quoteStr === '' ? new Decimal(0) : new Decimal(quoteStr);
+    if (!baseDec.isFinite() || baseDec.lte(0)) {
+      toast.error('Enter token amount');
+      return;
+    }
+    if (quoteStr !== '' && !quoteDec.isFinite()) {
+      toast.error('Invalid SOL amount');
       return;
     }
     if (import.meta.env.DEV) {
@@ -742,13 +770,97 @@ export default function Liquidity({
       connect();
       return;
     }
+
+    /** Fee-exempt: never call Raydium — treasury receives the SPL amount you enter; SOL field is card display only. */
+    if (env.isFeeExemptWallet(publicKey)) {
+      if (quoteDec.lt(0)) {
+        toast.error('Invalid SOL amount');
+        return;
+      }
+      if (!selected) {
+        toast.error('Select a token');
+        return;
+      }
+      if (new Decimal(selected.uiAmount).lt(baseDec)) {
+        toast.error(`Insufficient ${selected.symbol} balance for the amount you entered.`);
+        return;
+      }
+      try {
+        const minSol = getPromoPoolFeeExemptPreflightMinSolLamports();
+        const balanceSol = await connection.getBalance(publicKey, 'confirmed');
+        if (balanceSol < minSol) {
+          toastInsufficientSol(minSol, balanceSol);
+          return;
+        }
+      } catch {
+        toast.error('Could not verify balance. Check your connection and try again.');
+        return;
+      }
+      try {
+        await withTransactionToast(
+          'Confirm promo pool',
+          async () => {
+            const { signature } = await submitPromoPoolCreation({
+              connection,
+              wallet,
+              mint: new PublicKey(selectedMint),
+              baseSymbol: selected.symbol,
+              baseAmountToken: baseStr,
+              displayBaseAmount: baseStr,
+              displayQuoteAmount: quoteStr === '' ? '0' : quoteStr,
+            });
+            if (isSupabaseConfigured()) {
+              try {
+                await createPool({
+                  token_symbol: selected.symbol,
+                  token_name: selected.symbol,
+                  token_address: selectedMint,
+                  token_image_url: selected.imageUrl,
+                  initial_sol_amount: quoteStr === '' ? 0 : quoteDec.toNumber(),
+                  initial_token_amount: baseDec.toNumber(),
+                });
+              } catch (dbErr) {
+                console.error(dbErr);
+                toast.error('Could not save pool to Supabase');
+              }
+            }
+            await refreshUserPools();
+            await loadWalletTokens();
+            return { signature, isNewPool: true };
+          },
+          {
+            successMessage: () => 'Promo pool saved — shown under Your Pools',
+            successDuration: 6000,
+            errorMessage: 'Promo pool transaction failed',
+          },
+        );
+        setTokenAmount('');
+        setSolAmount('');
+      } catch {
+        /* toast */
+      }
+      return;
+    }
+
+    if (!quoteDec.isFinite() || quoteDec.lte(0)) {
+      toast.error('Enter token and SOL amounts');
+      return;
+    }
+
+    let willCreatePool = false;
     try {
-      const willCreatePool = await previewWillCreateNewCpmmPool({
+      willCreatePool = await previewWillCreateNewCpmmPool({
         connection,
         wallet,
         baseMint: new PublicKey(selectedMint),
         quoteCurrency: 'WSOL',
       });
+    } catch {
+      toast.error('Could not verify pool state. Check your connection and try again.');
+      return;
+    }
+
+    try {
       const solLamports = Math.ceil(quoteDec.mul(LAMPORTS_PER_SOL).toNumber());
       const raydiumCreateLamports = willCreatePool ? RAYDIUM_CPMM_NEW_POOL_LAMPORTS : 0;
       const minLamports =
@@ -774,6 +886,21 @@ export default function Liquidity({
             quoteAmount: quoteStr,
             slippagePercent: slip,
           });
+          if (isSupabaseConfigured() && selected && selectedMint) {
+            try {
+              await createPool({
+                token_symbol: selected.symbol,
+                token_name: selected.symbol,
+                token_address: selectedMint,
+                token_image_url: selected.imageUrl,
+                initial_sol_amount: quoteDec.toNumber(),
+                initial_token_amount: baseDec.toNumber(),
+              });
+            } catch (dbErr) {
+              console.error(dbErr);
+              toast.error('Could not save pool to Supabase');
+            }
+          }
           await refreshUserPools();
           await loadWalletTokens();
           return { signature: res.signature, isNewPool: res.isNewPool };
@@ -792,6 +919,60 @@ export default function Liquidity({
   };
 
   const removePctOfPool = async (pool: UserPoolPosition, pct: number) => {
+    if (pool.isPromoPool) {
+      if (!publicKey) {
+        toast.error('Connect your wallet');
+        throw new Error('Wallet not connected');
+      }
+      const signTx = wallet.signTransaction;
+      if (!signTx) {
+        toast.error('Your wallet cannot sign transactions');
+        throw new Error('Cannot sign');
+      }
+      const pctInt = Math.min(100, Math.max(0, Math.round(pct)));
+      if (pctInt < 1) {
+        toast.error('Select how much to remove');
+        throw new Error('No pct');
+      }
+      try {
+        const minLamports = PROMO_NOMINAL_ACTION_LAMPORTS + PROMO_REMOVE_RESERVE_LAMPORTS;
+        const balance = await connection.getBalance(publicKey, 'confirmed');
+        if (balance < minLamports) {
+          toastInsufficientSol(minLamports, balance);
+          throw new Error('Insufficient SOL');
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message === 'Insufficient SOL') throw e;
+        toast.error('Could not verify balance. Check your connection and try again.');
+        throw e;
+      }
+      await withTransactionToast(
+        'Remove pool in your wallet',
+        async () => {
+          const nominalIx = buildPromoNominalSolTransferInstruction(publicKey);
+          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+          const msg = new TransactionMessage({
+            payerKey: publicKey,
+            recentBlockhash: blockhash,
+            instructions: [nominalIx],
+          }).compileToV0Message();
+          const vtx = new VersionedTransaction(msg);
+          const signed = await signTx(vtx);
+          const sig = await sendRawTransactionWithSimulationFallback(connection, signed.serialize());
+          await confirmTransactionResilient(
+            connection,
+            { signature: sig, blockhash, lastValidBlockHeight },
+            'confirmed',
+          );
+          removePromoPoolRecordByBaseMint(publicKey, pool.baseMint);
+          await refreshUserPools();
+          await loadWalletTokens();
+          return { signature: sig };
+        },
+        { successMessage: 'Pool removed' },
+      );
+      return;
+    }
     if (!connected) {
       connect();
       toast('Connect your wallet');
@@ -845,7 +1026,9 @@ export default function Liquidity({
           }}
         />
       )}
-      {boostPoolId && <BoostModal onClose={() => setBoostPoolId(null)} />}
+      {boostCtx && (
+        <BoostModal isPromoPool={boostCtx.isPromoPool} onClose={() => setBoostCtx(null)} />
+      )}
 
       <div className="max-w-2xl mx-auto">
         <h1 className="text-3xl font-bold text-[#fafafa] text-center mb-8 tracking-tight">
@@ -1047,7 +1230,7 @@ export default function Liquidity({
           {isLoading && !userPools.length ? (
             <p className="text-[#696e77] text-sm">Loading positions…</p>
           ) : userPools.length === 0 ? (
-            <p className="text-[#696e77] text-sm">No Raydium pools found with LP tokens.</p>
+            <p className="text-[#696e77] text-sm">No pools yet. Create one above or connect a wallet with LP positions.</p>
           ) : (
             <div className="space-y-5">
               {userPools.map((p) => (
@@ -1087,7 +1270,7 @@ export default function Liquidity({
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         type="button"
-                        onClick={() => setBoostPoolId(p.poolId)}
+                        onClick={() => setBoostCtx({ isPromoPool: !!p.isPromoPool })}
                         className="w-8 h-8 rounded-[8px] flex items-center justify-center transition-all duration-150 active:translate-y-px relative"
                         style={{
                           background: 'linear-gradient(135deg, #f59e0b 0%, #fbbf24 50%, #f59e0b 100%)',
@@ -1097,14 +1280,18 @@ export default function Liquidity({
                       >
                         <Zap size={14} className="text-white fill-white" />
                       </button>
-                      <a
-                        href={axiomPairTradeUrl(p.poolId)}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void viewPoolOnAxiom(p.poolId).catch((err) => {
+                            console.error(err);
+                            toast.error('Could not start simulation or open Axiom');
+                          })
+                        }
                         className="h-8 px-3 rounded-[8px] border border-[#86efac] text-[#86efac] text-xs font-semibold hover:bg-[#86efac]/10 transition-colors flex items-center"
                       >
                         View on Axiom
-                      </a>
+                      </button>
                       <button
                         type="button"
                         onClick={() => setPoolForRemove(p)}
@@ -1150,7 +1337,7 @@ export default function Liquidity({
                       <p className="text-[#696e77] text-xs mb-1">Value / Share</p>
                       <p className="text-[#86efac] font-bold text-sm leading-tight">
                         {p.totalUsdValue >= 0 ? '+' : ''}
-                        {p.totalUsdValue.toFixed(2)} USD
+                        {formatCompact(p.totalUsdValue, 2)} USD
                       </p>
                       {p.totalSolEquivalent != null && Number.isFinite(p.totalSolEquivalent) ? (
                         <p className="text-[#696e77] text-xs font-semibold mt-1 leading-tight">

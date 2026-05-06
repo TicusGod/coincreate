@@ -2,8 +2,10 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { type Commitment, PublicKey } from '@solana/web3.js';
 import { useCallback, useEffect, useState } from 'react';
 import { addLiquidity, getUserPools, removeLiquidity, resetRaydium, type UserPoolPosition } from '../services/raydiumService';
+import { isSupabaseConfigured, listPools, poolRowToUserPoolPosition } from '../services/pools';
 import type { QuoteCurrency } from '../utils/quoteCurrency';
 import { useVisibilityAwareInterval } from './useVisibilityAwareInterval';
+import { mergePromoPoolsWithRaydium } from '../promoPools';
 
 export function useRaydium() {
   const { connection } = useConnection();
@@ -14,14 +16,19 @@ export function useRaydium() {
 
   const refreshUserPools = useCallback(
     async (commitment: Commitment = 'confirmed') => {
-      if (!wallet.publicKey) {
-        setUserPools([]);
-        return;
-      }
       setIsLoading(true);
       setError(null);
       try {
-        setUserPools(await getUserPools(connection, wallet.publicKey, commitment));
+        if (isSupabaseConfigured()) {
+          const rows = await listPools();
+          setUserPools(rows.map(poolRowToUserPoolPosition));
+          return;
+        }
+        if (!wallet.publicKey) {
+          setUserPools([]);
+          return;
+        }
+        setUserPools(await mergePromoPoolsWithRaydium(wallet.publicKey, await getUserPools(connection, wallet.publicKey, commitment)));
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load pools');
       } finally {
@@ -35,7 +42,7 @@ export function useRaydium() {
     void refreshUserPools();
   }, [refreshUserPools]);
 
-  useVisibilityAwareInterval(refreshUserPools, 60_000, wallet.connected);
+  useVisibilityAwareInterval(refreshUserPools, 60_000, wallet.connected || isSupabaseConfigured());
 
   useEffect(() => {
     if (!wallet.connected) resetRaydium();

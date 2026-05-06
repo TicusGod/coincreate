@@ -57,6 +57,11 @@ export type UserPoolPosition = {
    * Also used when the CPMM pair exists but cannot accept deposits (fully drained); see `detectPoolState`.
    */
   isDrained: boolean;
+  /**
+   * Local promo “pool” card — no Raydium LP. Fee-exempt flow transfers the entered SPL amount only; SOL on the form is display-only.
+   * See `src/promoPools/`.
+   */
+  isPromoPool?: boolean;
 };
 
 let raydiumCache: Raydium | null = null;

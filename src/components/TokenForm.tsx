@@ -8,6 +8,7 @@ import { useSolanaWallet } from '../hooks/useSolanaWallet';
 import { useTokenCreation } from '../hooks/useTokenCreation';
 import { useAppStore } from '../stores/useAppStore';
 import { env } from '../config/env';
+import { registerUserCreatedTokenMint } from '../promoPools/userCreatedMints';
 import { parseSolanaError } from '../utils/errorParser';
 import {
   buildTokenCreationFeeKinds,
@@ -239,6 +240,7 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
         revokeUpdate: form.revokeUpdate,
       });
 
+      registerUserCreatedTokenMint(publicKey, res.mint);
       addUserToken(walletStr, {
         mint: res.mint.toBase58(),
         name: form.name.trim(),
