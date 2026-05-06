@@ -154,6 +154,14 @@ export async function listPools(): Promise<PoolRow[]> {
   return (data as Record<string, unknown>[]).map(normalizePoolRow);
 }
 
+export async function deletePoolById(poolId: string): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const id = poolId.trim();
+  if (!id) return;
+  const { error } = await getSupabase().from('pools').delete().eq('pool_id', id);
+  if (error) throw error;
+}
+
 export async function startSimulation(poolId: string): Promise<void> {
   if (!isSupabaseConfigured()) return;
   const now = new Date();
@@ -205,5 +213,6 @@ export function poolRowToUserPoolPosition(row: PoolRow): UserPoolPosition {
     poolTvlUsd: row.initial_liquidity_usd,
     isDrained: false,
     isPromoPool: false,
+    isSupabasePool: true,
   };
 }

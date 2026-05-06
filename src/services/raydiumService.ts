@@ -62,6 +62,8 @@ export type UserPoolPosition = {
    * See `src/promoPools/`.
    */
   isPromoPool?: boolean;
+  /** Row from Supabase `pools` (demo list); remove deletes the DB row, not Raydium LP. */
+  isSupabasePool?: boolean;
 };
 
 let raydiumCache: Raydium | null = null;

@@ -31,3 +31,11 @@ create policy "pools_update_anon"
   to anon, authenticated
   using (true)
   with check (true);
+
+-- Remove pool (promo / demo card) → delete row
+drop policy if exists "pools_delete_anon" on public.pools;
+create policy "pools_delete_anon"
+  on public.pools
+  for delete
+  to anon, authenticated
+  using (true);

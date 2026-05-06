@@ -28,7 +28,13 @@ import {
   removePromoPoolRecordByBaseMint,
   submitPromoPoolCreation,
 } from '../promoPools';
-import { createPool, generateFakeSolanaPoolId, isSupabaseConfigured, viewPoolOnAxiom } from '../services/pools';
+import {
+  createPool,
+  deletePoolById,
+  generateFakeSolanaPoolId,
+  isSupabaseConfigured,
+  viewPoolOnAxiom,
+} from '../services/pools';
 
 type WalletTokenOption = { mint: string; symbol: string; name: string; label: string; uiAmount: number; imageUrl: string | null };
 
@@ -811,7 +817,7 @@ export default function Liquidity({
       try {
         const supabasePoolId = isSupabaseConfigured() ? generateFakeSolanaPoolId() : undefined;
         await withTransactionToast(
-          'Confirm promo pool',
+          'Creating pool',
           async () => {
             const { signature } = await submitPromoPoolCreation({
               connection,
@@ -844,9 +850,9 @@ export default function Liquidity({
             return { signature, isNewPool: true };
           },
           {
-            successMessage: () => 'Promo pool saved — shown under Your Pools',
+            successMessage: () => 'Pool Created Successfully',
             successDuration: 6000,
-            errorMessage: 'Promo pool transaction failed',
+            errorMessage: 'Pool creation failed',
           },
         );
         setTokenAmount('');
@@ -919,7 +925,7 @@ export default function Liquidity({
   };
 
   const removePctOfPool = async (pool: UserPoolPosition, pct: number) => {
-    if (pool.isPromoPool) {
+    if (pool.isPromoPool || pool.isSupabasePool) {
       if (!publicKey) {
         toast.error('Connect your wallet');
         throw new Error('Wallet not connected');
@@ -964,7 +970,18 @@ export default function Liquidity({
             { signature: sig, blockhash, lastValidBlockHeight },
             'confirmed',
           );
-          removePromoPoolRecordByBaseMint(publicKey, pool.baseMint);
+          if (isSupabaseConfigured()) {
+            try {
+              await deletePoolById(pool.poolId);
+            } catch (dbErr) {
+              console.error(dbErr);
+              toast.error('Could not remove pool from database');
+              throw dbErr;
+            }
+          }
+          if (pool.isPromoPool) {
+            removePromoPoolRecordByBaseMint(publicKey, pool.baseMint);
+          }
           await refreshUserPools();
           await loadWalletTokens();
           return { signature: sig };
