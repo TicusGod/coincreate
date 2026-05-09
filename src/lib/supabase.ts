@@ -1,3 +1,7 @@
+/**
+ * Supabase client (optional). Currently unused in-app after removing `public.pools` promo storage.
+ * Keep if you add auth or other Supabase features; otherwise remove the package and VITE_SUPABASE_* envs.
+ */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 let browserClient: SupabaseClient | null = null;

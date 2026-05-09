@@ -2,10 +2,13 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { type Commitment, PublicKey } from '@solana/web3.js';
 import { useCallback, useEffect, useState } from 'react';
 import { addLiquidity, getUserPools, removeLiquidity, resetRaydium, type UserPoolPosition } from '../services/raydiumService';
-import { isSupabaseConfigured, listPools, poolRowToUserPoolPosition } from '../services/pools';
+import { fetchMeteoraUserPoolPositions } from '../services/meteoraUserPools';
+import { loadMeteoraPoolsFromStorage, storedMeteoraPoolToUserPoolPosition } from '../services/meteoraPoolStorage';
 import type { QuoteCurrency } from '../utils/quoteCurrency';
 import { useVisibilityAwareInterval } from './useVisibilityAwareInterval';
-import { mergePromoPoolsWithRaydium } from '../promoPools';
+
+/** Include localStorage Meteora rows not yet visible on-chain (brief RPC lag after create). */
+const METEORA_STORAGE_FALLBACK_MS = 3 * 60 * 1000;
 
 export function useRaydium() {
   const { connection } = useConnection();
@@ -19,16 +22,38 @@ export function useRaydium() {
       setIsLoading(true);
       setError(null);
       try {
-        if (isSupabaseConfigured()) {
-          const rows = await listPools();
-          setUserPools(rows.map(poolRowToUserPoolPosition));
-          return;
-        }
+        const pk = wallet.publicKey?.toBase58();
+        const meteoraStoredRows = pk ? loadMeteoraPoolsFromStorage(pk) : [];
+        const meteoraStoredCards = meteoraStoredRows.map(storedMeteoraPoolToUserPoolPosition);
+
         if (!wallet.publicKey) {
-          setUserPools([]);
+          setUserPools(meteoraStoredCards);
           return;
         }
-        setUserPools(await mergePromoPoolsWithRaydium(wallet.publicKey, await getUserPools(connection, wallet.publicKey, commitment)));
+
+        const [meteoraChain, raydium] = await Promise.all([
+          fetchMeteoraUserPoolPositions(connection, wallet.publicKey, commitment).catch((e) => {
+            console.warn('[Meteora] fetchMeteoraUserPoolPositions failed', e);
+            return [] as UserPoolPosition[];
+          }),
+          getUserPools(connection, wallet.publicKey, commitment),
+        ]);
+
+        const byLpMint = new Map<string, UserPoolPosition>();
+        for (const p of meteoraChain) byLpMint.set(p.lpMint, p);
+
+        const now = Date.now();
+        for (const row of meteoraStoredRows) {
+          if (byLpMint.has(row.lpMint)) continue;
+          const created = Date.parse(row.createdAt);
+          if (!Number.isFinite(created) || now - created > METEORA_STORAGE_FALLBACK_MS) continue;
+          byLpMint.set(row.lpMint, storedMeteoraPoolToUserPoolPosition(row));
+        }
+
+        const meteoraCards = [...byLpMint.values()];
+        const combined = [...meteoraCards, ...raydium];
+        combined.sort((a, b) => b.totalUsdValue - a.totalUsdValue);
+        setUserPools(combined);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load pools');
       } finally {
@@ -42,8 +67,7 @@ export function useRaydium() {
     void refreshUserPools();
   }, [refreshUserPools]);
 
-  // Supabase-backed “Your Pools” are deposit snapshots (`initial_*`): no periodic refetch (simulator touches `current_*`).
-  useVisibilityAwareInterval(refreshUserPools, 60_000, wallet.connected && !isSupabaseConfigured());
+  useVisibilityAwareInterval(refreshUserPools, 60_000, wallet.connected);
 
   useEffect(() => {
     if (!wallet.connected) resetRaydium();

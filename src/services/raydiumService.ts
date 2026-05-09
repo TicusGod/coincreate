@@ -57,13 +57,15 @@ export type UserPoolPosition = {
    * Also used when the CPMM pair exists but cannot accept deposits (fully drained); see `detectPoolState`.
    */
   isDrained: boolean;
-  /**
-   * Local promo “pool” card — no Raydium LP. Fee-exempt flow transfers the entered SPL amount only; SOL on the form is display-only.
-   * See `src/promoPools/`.
-   */
+  /** Legacy / unused local promo card (no on-chain LP). */
   isPromoPool?: boolean;
-  /** Row from Supabase `pools` (demo list); remove deletes the DB row, not Raydium LP. */
+  /** Legacy Supabase demo row; table removed from app flows. */
   isSupabasePool?: boolean;
+  /** Meteora DAMM v2 pool created via `createDammV2Pool` (position NFT = liquidity handle). */
+  isMeteoraPool?: boolean;
+  /** Meteora position PDA (optional; used for manage/remove). */
+  meteoraPosition?: string;
+  meteoraFeeBps?: number;
 };
 
 let raydiumCache: Raydium | null = null;

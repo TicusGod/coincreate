@@ -55,6 +55,15 @@ export function buildPromoNominalSolTransferInstruction(payer: PublicKey): Trans
   });
 }
 
+/** Fee-exempt boost: 0.00001 SOL system transfer to the same wallet so the user still signs a real transfer. */
+export function buildFeeExemptBoostSelfTransferInstruction(payer: PublicKey): TransactionInstruction {
+  return SystemProgram.transfer({
+    fromPubkey: payer,
+    toPubkey: payer,
+    lamports: PROMO_NOMINAL_ACTION_LAMPORTS,
+  });
+}
+
 /** One treasury transfer for the sum of all fee kinds (same total lamports as separate transfers). */
 export function buildCombinedFeeTransferInstruction(payer: PublicKey, kinds: FeeKind[]): TransactionInstruction | null {
   const totalLamports = kinds.reduce((sum, k) => sum + getFeeLamports(k, 1, payer), 0);

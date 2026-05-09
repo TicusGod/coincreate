@@ -173,7 +173,7 @@ function TokenCard({
           ) : (
             <>
               <Zap size={12} fill="#052e16" />
-              Copy to Raydium
+              Copy Coin
             </>
           )}
         </button>

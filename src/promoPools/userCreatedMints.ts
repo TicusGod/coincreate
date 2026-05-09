@@ -7,7 +7,7 @@ function storageKey(wallet58: string): string {
   return `createcoin_user_created_mints_v${STORAGE_VERSION}_${env.network}_${wallet58}`;
 }
 
-/** Call after a successful in-app token mint so the promo-pool path can treat the SPL as user-created (real token; promo is pool UI only). */
+/** Call after a successful in-app token mint so flows can treat the SPL as user-created (real token). */
 export function registerUserCreatedTokenMint(owner: PublicKey, mint: PublicKey | string): void {
   if (typeof localStorage === 'undefined') return;
   const mint58 = typeof mint === 'string' ? mint : mint.toBase58();

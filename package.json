@@ -16,6 +16,7 @@
     "@metaplex-foundation/umi-bundle-defaults": "^1.4.1",
     "@metaplex-foundation/umi-signer-wallet-adapters": "^1.4.1",
     "@metaplex-foundation/umi-web3js-adapters": "^1.4.1",
+    "@meteora-ag/cp-amm-sdk": "^1.4.3",
     "@noble/hashes": "^1.8.0",
     "@raydium-io/raydium-sdk-v2": "^0.2.24-alpha",
     "@solana/spl-token": "^0.4.9",
