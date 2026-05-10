@@ -25,6 +25,8 @@ import {
 } from '@meteora-ag/cp-amm-sdk';
 import {
   NATIVE_MINT,
+  ACCOUNT_SIZE,
+  MINT_SIZE,
   getAccount,
   getAssociatedTokenAddressSync,
   getMint,
@@ -49,6 +51,75 @@ import { env } from '../config/env';
 
 /** Enough CU for Meteora pool init / new position + wrap SOL + platform fee ix. */
 const METEORA_POOL_TX_COMPUTE_UNITS = 2_000_000;
+
+/** Anchor 8-byte account discriminator. */
+const ANCHOR_ACCOUNT_DISCRIMINATOR_SIZE = 8;
+
+/**
+ * Serialized account data lengths from Meteora `damm-v2` (`programs/cp-amm/src/state/pool.rs`,
+ * `position.rs`): `const_assert_eq!(Pool::INIT_SPACE, 1104)`, `const_assert_eq!(Position::INIT_SPACE, 400)`.
+ */
+const METEORA_POOL_ACCOUNT_DATA_SIZE = ANCHOR_ACCOUNT_DISCRIMINATOR_SIZE + 1104;
+const METEORA_POSITION_ACCOUNT_DATA_SIZE = ANCHOR_ACCOUNT_DISCRIMINATOR_SIZE + 400;
+
+/** Small cushion for auxiliary accounts / rounding (not a duplicate of on-chain rent). */
+const METEORA_POOL_CREATE_OVERHEAD_BUFFER_LAMPORTS = 25_000;
+
+export type MeteoraCustomPoolCreateOverheadEstimate = {
+  newAccountRentLamports: number;
+  priorityFeeLamports: number;
+  baseSignatureFeeLamports: number;
+  overheadBufferLamports: number;
+  totalOverheadLamports: number;
+};
+
+/**
+ * Pre-flight SOL required beyond platform fee + user SOL seed: rent-exempt minimums for accounts created in
+ * `initialize_customizable_pool`, estimated priority fee (same CU + fee heuristic as the real tx), and base signature fee.
+ *
+ * @param includeWsolAtaRent — When true (default), includes one SPL token-account rent for a possibly new wSOL ATA (upper bound).
+ */
+export async function estimateMeteoraCustomPoolCreateOverheadLamports(
+  connection: Connection,
+  params: {
+    payer: PublicKey;
+    baseTokenMint: PublicKey;
+    includeWsolAtaRent?: boolean;
+  },
+): Promise<MeteoraCustomPoolCreateOverheadEstimate> {
+  const includeWsol = params.includeWsolAtaRent !== false;
+  const pool = deriveExpectedCustomizablePoolPda(params.baseTokenMint);
+  const accountSizes = [
+    METEORA_POOL_ACCOUNT_DATA_SIZE,
+    METEORA_POSITION_ACCOUNT_DATA_SIZE,
+    MINT_SIZE,
+    ACCOUNT_SIZE,
+    ACCOUNT_SIZE,
+    ACCOUNT_SIZE,
+  ];
+  if (includeWsol) {
+    accountSizes.push(ACCOUNT_SIZE);
+  }
+  const rents = await Promise.all(
+    accountSizes.map((dataLen) => connection.getMinimumBalanceForRentExemption(dataLen)),
+  );
+  const newAccountRentLamports = rents.reduce((sum, x) => sum + x, 0);
+
+  const micro = await getDynamicPriorityFee(connection, [params.payer, pool]);
+  const priorityFeeLamports = Math.ceil((METEORA_POOL_TX_COMPUTE_UNITS * micro) / 1_000_000);
+  const baseSignatureFeeLamports = 5_000;
+  const overheadBufferLamports = METEORA_POOL_CREATE_OVERHEAD_BUFFER_LAMPORTS;
+  const totalOverheadLamports =
+    newAccountRentLamports + priorityFeeLamports + baseSignatureFeeLamports + overheadBufferLamports;
+
+  return {
+    newAccountRentLamports,
+    priorityFeeLamports,
+    baseSignatureFeeLamports,
+    overheadBufferLamports,
+    totalOverheadLamports,
+  };
+}
 
 async function prependComputeBudgetAndPlatformFee(
   connection: Connection,

@@ -56,8 +56,7 @@ export function parseSolanaError(error: unknown): {
   if (anchorCustom === '6002') {
     return {
       title: 'Slippage',
-      message:
-        'Meteora error 6002 (ExceededSlippage): the pool needs to debit more token A/B than your transaction allows as a maximum. Raise the token and/or SOL amounts in the form so both sides cap above what the deposit requires (rounding and fees can add a little extra).',
+      message: 'Price moved beyond slippage tolerance. Increase slippage and retry',
       isUserRejection: false,
       shouldRetry: true,
       technicalDetails: s.slice(0, 2000),
@@ -191,17 +190,18 @@ export function parseSolanaError(error: unknown): {
       };
     }
 
-    const message =
+    const details =
       hint ||
       (s.length > 80 ? s.replace(/^Error\s+/i, '').trim().slice(0, 400) + (s.length > 480 ? '…' : '') : '') ||
-      'Transaction simulation failed (no log lines returned — try another RPC or check the browser console).';
+      'No log lines returned — try another RPC or check the browser console.';
 
     return {
       title: 'Simulation',
-      message: message.length > 380 ? `${message.slice(0, 377)}…` : message,
+      message: 'Transaction simulation failed',
       isUserRejection: false,
       shouldRetry: true,
-      technicalDetails: s.slice(0, 2500),
+      technicalDetails:
+        details.length > 900 ? `${details.slice(0, 897)}…` : details,
     };
   }
 

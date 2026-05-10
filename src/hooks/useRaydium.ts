@@ -2,7 +2,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { type Commitment, PublicKey } from '@solana/web3.js';
 import { useCallback, useEffect, useState } from 'react';
 import { addLiquidity, getUserPools, removeLiquidity, resetRaydium, type UserPoolPosition } from '../services/raydiumService';
-import { fetchMeteoraUserPoolPositions } from '../services/meteoraUserPools';
+import { enrichMeteoraPoolSymbols, fetchMeteoraUserPoolPositions } from '../services/meteoraUserPools';
 import { loadMeteoraPoolsFromStorage, storedMeteoraPoolToUserPoolPosition } from '../services/meteoraPoolStorage';
 import type { QuoteCurrency } from '../utils/quoteCurrency';
 import { useVisibilityAwareInterval } from './useVisibilityAwareInterval';
@@ -27,7 +27,7 @@ export function useRaydium() {
         const meteoraStoredCards = meteoraStoredRows.map(storedMeteoraPoolToUserPoolPosition);
 
         if (!wallet.publicKey) {
-          setUserPools(meteoraStoredCards);
+          setUserPools(await enrichMeteoraPoolSymbols(connection, meteoraStoredCards));
           return;
         }
 
@@ -50,7 +50,7 @@ export function useRaydium() {
           byLpMint.set(row.lpMint, storedMeteoraPoolToUserPoolPosition(row));
         }
 
-        const meteoraCards = [...byLpMint.values()];
+        const meteoraCards = await enrichMeteoraPoolSymbols(connection, [...byLpMint.values()]);
         const combined = [...meteoraCards, ...raydium];
         combined.sort((a, b) => b.totalUsdValue - a.totalUsdValue);
         setUserPools(combined);

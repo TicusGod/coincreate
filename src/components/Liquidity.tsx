@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import toast, { type Toast } from 'react-hot-toast';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import Decimal from 'decimal.js';
@@ -29,6 +29,7 @@ import {
   PoolAlreadyExistsError,
   addLiquidityToExistingMeteoraPool,
   createDammV2Pool,
+  estimateMeteoraCustomPoolCreateOverheadLamports,
   removeMeteoraLiquidity,
 } from '../services/meteoraPool';
 import { appendMeteoraPool, removeMeteoraPoolFromStorage } from '../services/meteoraPoolStorage';
@@ -36,6 +37,18 @@ import { openDexscreenerPool } from '../services/pools';
 import { meteoraPoolUrl, solanaExplorerAddressUrl } from '../utils/solanaExplorer';
 
 type WalletTokenOption = { mint: string; symbol: string; name: string; label: string; uiAmount: number; imageUrl: string | null };
+
+type MetaCacheEntry = {
+  at: number;
+  label: string;
+  symbol: string;
+  name: string;
+  imageUrl: string | null;
+  /** Metadata JSON URI until `imageUrl` is resolved. */
+  metadataUri?: string | null;
+};
+
+const META_IMAGE_FETCH_CONCURRENCY = 6;
 
 async function imageUrlFromMetadataUri(uriRaw: string): Promise<string | null> {
   const uri = uriRaw.replace(/\0/g, '').trim();
@@ -52,6 +65,60 @@ async function imageUrlFromMetadataUri(uriRaw: string): Promise<string | null> {
   }
 }
 
+function stubWalletTokenOption(mint: string, ui: number): WalletTokenOption {
+  const sym = mint.slice(0, 4);
+  return {
+    mint,
+    symbol: sym,
+    name: sym,
+    label: `${sym} · ${mint.slice(0, 4)}…${mint.slice(-4)}`,
+    uiAmount: ui,
+    imageUrl: null,
+  };
+}
+
+async function mapWithConcurrency<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  if (items.length === 0) return;
+  let next = 0;
+  const nWorkers = Math.min(limit, items.length);
+  await Promise.all(
+    Array.from({ length: nWorkers }, async () => {
+      while (true) {
+        const i = next++;
+        if (i >= items.length) break;
+        await fn(items[i]!);
+      }
+    }),
+  );
+}
+
+async function hydrateWalletTokenImages(params: {
+  jobs: { mint: string; uri: string | null }[];
+  gen: number;
+  loadGen: { current: number };
+  metaCache: { current: Map<string, MetaCacheEntry> };
+  setWalletTokens: Dispatch<SetStateAction<WalletTokenOption[]>>;
+}): Promise<void> {
+  const pending = params.jobs.filter((j): j is { mint: string; uri: string } => !!j.uri);
+  await mapWithConcurrency(pending, META_IMAGE_FETCH_CONCURRENCY, async ({ mint, uri }) => {
+    const imageUrl = await imageUrlFromMetadataUri(uri);
+    if (params.gen !== params.loadGen.current) return;
+    const hit = params.metaCache.current.get(mint);
+    if (hit) {
+      params.metaCache.current.set(mint, {
+        ...hit,
+        imageUrl,
+        at: Date.now(),
+        metadataUri: undefined,
+      });
+    }
+    params.setWalletTokens((prev: WalletTokenOption[]) => {
+      if (params.gen !== params.loadGen.current) return prev;
+      return prev.map((t: WalletTokenOption) => (t.mint === mint ? { ...t, imageUrl } : t));
+    });
+  });
+}
+
 const META_TTL_MS = 5 * 60 * 1000;
 const LP_PERCENTAGES = [25, 50, 75, 100];
 /** Applied to add/remove LP txs; not shown in the UI. */
@@ -59,12 +126,9 @@ const AUTO_SLIPPAGE_PERCENT = 1;
 const REMOVE_LIQ_RESERVE_LAMPORTS = 3_000_000;
 const BOOST_RESERVE_LAMPORTS = 1_000_000;
 const METEORA_MIN_SEED_SOL_UI = 0.1;
-/** Shown as estimate (actual rent varies). */
-const METEORA_POOL_CREATE_RENT_SOL_UI = 0.03;
 /** Minimum DAMM v2 pool swap fee (0.25%); fixed — not shown in UI. */
 const METEORA_POOL_SWAP_FEE_BPS = 25;
 const METEORA_DEFAULT_SUPPLY_FRAC = 0.9;
-const METEORA_EXTRA_RESERVE_LAMPORTS = 80_000_000;
 /** If UI-computed raw amount exceeds ATA by ≤ this (rounding / float), clamp to wallet balance instead of blocking. */
 const METEORA_DEPOSIT_RAW_ROUNDING_SLACK = new BN(65_536);
 
@@ -331,7 +395,7 @@ function BoostModal({ onClose }: { onClose: () => void }) {
         ? buildFeeExemptBoostSelfTransferInstruction(payer)
         : buildFeeTransferInstruction(payer, 'dex_boost');
       if (!ix) {
-        toast.error('Boost fee could not be built. Check treasury configuration.');
+        toast.error('Something went wrong. Please try again');
         return;
       }
       await withTransactionToast(
@@ -349,7 +413,7 @@ function BoostModal({ onClose }: { onClose: () => void }) {
           await confirmTransactionResilient(connection, { signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
           return { signature: sig };
         },
-        { successMessage: 'Boost fee paid' },
+        { successMessage: 'Boost fee paid', successAppendSignature: false },
       );
       dismiss();
     } finally {
@@ -577,7 +641,14 @@ function MeteoraPoolAlreadyExistsToast({
           className="text-[11px] font-semibold text-[#86efac] hover:underline"
           onClick={() => {
             void navigator.clipboard.writeText(poolAddress).then(
-              () => toast.success('Pool address copied'),
+              () =>
+                toast.success(
+                  `Address copied · ${
+                    poolAddress.length > 14
+                      ? `${poolAddress.slice(0, 4)}…${poolAddress.slice(-4)}`
+                      : poolAddress
+                  }`,
+                ),
               () => toast.error('Could not copy'),
             );
           }}
@@ -659,9 +730,9 @@ export default function Liquidity({
   const [poolForRemove, setPoolForRemove] = useState<UserPoolPosition | null>(null);
   const [boostModalOpen, setBoostModalOpen] = useState(false);
 
-  const metaCache = useRef<
-    Map<string, { at: number; label: string; symbol: string; name: string; imageUrl: string | null }>
-  >(new Map());
+  const metaCache = useRef<Map<string, MetaCacheEntry>>(new Map());
+  const liquidityMetaUmiRef = useRef<ReturnType<typeof createUmi> | null>(null);
+  const walletTokensLoadGen = useRef(0);
   /** Mint to select after wallet tokens finish loading (from Create flow); ref avoids races with async refresh. */
   const pendingLiquidityMintRef = useRef<string | null>(null);
   /** One-time default seed amount per mint when opening the form for a token. */
@@ -671,31 +742,80 @@ export default function Liquidity({
     pendingLiquidityMintRef.current = initialSelectMint;
   }, [initialSelectMint]);
 
-  const resolveMeta = useCallback(
-    async (mint: string): Promise<{ label: string; symbol: string; name: string; imageUrl: string | null }> => {
+  useEffect(() => {
+    liquidityMetaUmiRef.current = createUmi(connection).use(mplTokenMetadata());
+  }, [connection]);
+
+  const ensureWalletTokenMeta = useCallback(
+    async (
+      mint: string,
+    ): Promise<{
+      label: string;
+      symbol: string;
+      name: string;
+      imageUrl: string | null;
+      metadataUri: string | null;
+    }> => {
       const now = Date.now();
       const hit = metaCache.current.get(mint);
       if (hit && now - hit.at < META_TTL_MS) {
-        return { label: hit.label, symbol: hit.symbol, name: hit.name, imageUrl: hit.imageUrl };
+        return {
+          label: hit.label,
+          symbol: hit.symbol,
+          name: hit.name,
+          imageUrl: hit.imageUrl,
+          metadataUri: hit.metadataUri ?? null,
+        };
       }
+      const umi = liquidityMetaUmiRef.current ?? createUmi(connection).use(mplTokenMetadata());
+      liquidityMetaUmiRef.current = umi;
       try {
-        const umi = createUmi(connection).use(mplTokenMetadata());
         const asset = await fetchDigitalAsset(umi, umiPublicKey(mint));
         const sym = asset.metadata.symbol.replace(/\0/g, '').trim() || mint.slice(0, 4);
         const nameRaw = asset.metadata.name.replace(/\0/g, '').trim() || sym;
         const label = `${sym} · ${mint.slice(0, 4)}…${mint.slice(-4)}`;
         const uriRaw = asset.metadata.uri.replace(/\0/g, '').trim();
-        const imageUrl = uriRaw ? await imageUrlFromMetadataUri(uriRaw) : null;
-        metaCache.current.set(mint, { at: now, label, symbol: sym, name: nameRaw, imageUrl });
-        return { label, symbol: sym, name: nameRaw, imageUrl };
+        const metadataUri = uriRaw.length > 0 ? uriRaw : null;
+        metaCache.current.set(mint, {
+          at: now,
+          label,
+          symbol: sym,
+          name: nameRaw,
+          imageUrl: null,
+          metadataUri,
+        });
+        return { label, symbol: sym, name: nameRaw, imageUrl: null, metadataUri };
       } catch {
         const sym = mint.slice(0, 4);
         const label = `${sym}…${mint.slice(-4)}`;
-        metaCache.current.set(mint, { at: now, label, symbol: sym, name: sym, imageUrl: null });
-        return { label, symbol: sym, name: sym, imageUrl: null };
+        metaCache.current.set(mint, {
+          at: now,
+          label,
+          symbol: sym,
+          name: sym,
+          imageUrl: null,
+          metadataUri: null,
+        });
+        return { label, symbol: sym, name: sym, imageUrl: null, metadataUri: null };
       }
     },
     [connection],
+  );
+
+  const resolveMeta = useCallback(
+    async (mint: string): Promise<{ label: string; symbol: string; name: string; imageUrl: string | null }> => {
+      const m = await ensureWalletTokenMeta(mint);
+      if (m.imageUrl !== null || !m.metadataUri) {
+        return { label: m.label, symbol: m.symbol, name: m.name, imageUrl: m.imageUrl };
+      }
+      const imageUrl = await imageUrlFromMetadataUri(m.metadataUri);
+      const hit = metaCache.current.get(mint);
+      if (hit) {
+        metaCache.current.set(mint, { ...hit, imageUrl, at: Date.now(), metadataUri: undefined });
+      }
+      return { label: m.label, symbol: m.symbol, name: m.name, imageUrl };
+    },
+    [ensureWalletTokenMeta],
   );
 
   const loadWalletTokens = useCallback(async () => {
@@ -704,6 +824,7 @@ export default function Liquidity({
       return;
     }
     const preferMint = pendingLiquidityMintRef.current;
+    const gen = ++walletTokensLoadGen.current;
     setLoadingTokens(true);
     try {
       const parsed = await connection.getParsedTokenAccountsByOwner(publicKey, { programId: TOKEN_PROGRAM_ID });
@@ -743,24 +864,60 @@ export default function Liquidity({
       if (preferMint && !rows.some((r) => r.mint === preferMint)) {
         rows.push({ mint: preferMint, ui: 0 });
       }
-      const opts: WalletTokenOption[] = [];
-      for (const r of rows) {
-        const { label, symbol, name, imageUrl } = await resolveMeta(r.mint);
-        opts.push({ mint: r.mint, symbol, name, label, uiAmount: r.ui, imageUrl });
-      }
-      opts.sort((a, b) => b.uiAmount - a.uiAmount);
-      setWalletTokens(opts);
+      if (gen !== walletTokensLoadGen.current) return;
+
+      const stubs = rows.map((r) => stubWalletTokenOption(r.mint, r.ui));
+      stubs.sort((a, b) => b.uiAmount - a.uiAmount);
+      setWalletTokens(stubs);
       setSelectedMint((prev) => {
-        if (preferMint && opts.some((o) => o.mint === preferMint)) return preferMint;
-        if (prev && opts.some((o) => o.mint === prev)) return prev;
+        if (preferMint && stubs.some((o) => o.mint === preferMint)) return preferMint;
+        if (prev && stubs.some((o) => o.mint === prev)) return prev;
         return null;
       });
-    } catch {
-      setWalletTokens([]);
-    } finally {
       setLoadingTokens(false);
+
+      const umi = liquidityMetaUmiRef.current ?? createUmi(connection).use(mplTokenMetadata());
+      liquidityMetaUmiRef.current = umi;
+
+      const metas = await Promise.all(rows.map((r) => ensureWalletTokenMeta(r.mint)));
+      if (gen !== walletTokensLoadGen.current) return;
+
+      const enriched: WalletTokenOption[] = rows.map((r, i) => {
+        const m = metas[i]!;
+        return {
+          mint: r.mint,
+          symbol: m.symbol,
+          name: m.name,
+          label: m.label,
+          uiAmount: r.ui,
+          imageUrl: m.imageUrl,
+        };
+      });
+      enriched.sort((a, b) => b.uiAmount - a.uiAmount);
+      setWalletTokens(enriched);
+      setSelectedMint((prev) => {
+        if (preferMint && enriched.some((o) => o.mint === preferMint)) return preferMint;
+        if (prev && enriched.some((o) => o.mint === prev)) return prev;
+        return null;
+      });
+
+      void hydrateWalletTokenImages({
+        jobs: rows.map((r, i) => ({ mint: r.mint, uri: metas[i]!.metadataUri })),
+        gen,
+        loadGen: walletTokensLoadGen,
+        metaCache,
+        setWalletTokens,
+      });
+    } catch {
+      if (gen === walletTokensLoadGen.current) {
+        setWalletTokens([]);
+      }
+    } finally {
+      if (gen === walletTokensLoadGen.current) {
+        setLoadingTokens(false);
+      }
     }
-  }, [connection, publicKey, resolveMeta]);
+  }, [connection, publicKey, ensureWalletTokenMeta]);
 
   const [poolMintImages, setPoolMintImages] = useState<Record<string, string | null>>({});
 
@@ -868,7 +1025,7 @@ export default function Liquidity({
   const onAddLiquidity = async () => {
     if (!connected) {
       connect();
-      toast('Connect your wallet');
+      toast('Connect your wallet to continue');
       return;
     }
     if (!selectedMint) {
@@ -880,11 +1037,11 @@ export default function Liquidity({
     const baseDec = new Decimal(baseStr);
     const quoteDec = quoteStr === '' ? new Decimal(0) : new Decimal(quoteStr);
     if (!baseDec.isFinite() || baseDec.lte(0)) {
-      toast.error('Enter token amount');
+      toast.error('Enter token and SOL amounts');
       return;
     }
     if (quoteStr !== '' && !quoteDec.isFinite()) {
-      toast.error('Invalid SOL amount');
+      toast.error('Enter token and SOL amounts');
       return;
     }
     if (import.meta.env.DEV) {
@@ -920,7 +1077,7 @@ export default function Liquidity({
       const mi = await getMint(connection, mintPk, 'confirmed', mintProgram);
       mintDecimals = mi.decimals;
     } catch {
-      toast.error('Could not read token mint');
+      toast.error('Something went wrong. Please try again');
       return;
     }
     const baseRaw = baseDec.mul(new Decimal(10).pow(mintDecimals)).floor();
@@ -944,19 +1101,22 @@ export default function Liquidity({
         }
       }
     } catch {
-      toast.error('Could not read your token account for this mint.');
+      toast.error('Token account not found. The token may not exist on this network');
       return;
     }
 
     if (depositBn.lten(0)) {
-      toast.error('Token deposit amount must be greater than zero.');
+      toast.error('Enter token and SOL amounts');
       return;
     }
 
     try {
-      const rentPad = Math.ceil(METEORA_POOL_CREATE_RENT_SOL_UI * LAMPORTS_PER_SOL);
       const feeLamports = getFeeLamports('add_liquidity', 1, publicKey);
-      const minLamports = feeLamports + solBn.toNumber() + rentPad + METEORA_EXTRA_RESERVE_LAMPORTS;
+      const overhead = await estimateMeteoraCustomPoolCreateOverheadLamports(connection, {
+        payer: publicKey,
+        baseTokenMint: new PublicKey(selectedMint),
+      });
+      const minLamports = feeLamports + solBn.toNumber() + overhead.totalOverheadLamports;
       const balanceSol = await connection.getBalance(publicKey, 'confirmed');
       if (balanceSol < minLamports) {
         toastInsufficientSol(minLamports, balanceSol);
@@ -969,7 +1129,7 @@ export default function Liquidity({
 
     try {
       await withTransactionToast(
-        'Creating pool…',
+        'Creating pool',
         async () => {
           const res = await createDammV2Pool({
             connection,
@@ -993,9 +1153,14 @@ export default function Liquidity({
           return { signature: res.txSignature };
         },
         {
-          successMessage: 'Pool created',
+          successMessage: 'Pool created successfully, It can take a few minutes',
+          successAppendSignature: false,
           successDuration: 6000,
           skipParsedErrorToast: (err) => err instanceof PoolAlreadyExistsError,
+          errorMessage: (_e, p) =>
+            p.message === 'Something went wrong. Please try again'
+              ? 'Pool creation transaction failed'
+              : undefined,
         },
       );
       setTokenAmount('');
@@ -1012,7 +1177,7 @@ export default function Liquidity({
               runAddLiquidity={async () => {
                 if (!publicKey || !selectedMint) return;
                 await withTransactionToast(
-                  'Adding liquidity…',
+                  'Adding liquidity',
                   async () => {
                     const res = await addLiquidityToExistingMeteoraPool({
                       connection,
@@ -1055,16 +1220,16 @@ export default function Liquidity({
     if (pool.isMeteoraPool) {
       if (!connected) {
         connect();
-        toast('Connect your wallet');
+        toast('Connect your wallet to continue');
         throw new Error('Wallet not connected');
       }
       if (!publicKey) {
-        toast.error('Connect your wallet');
+        toast.error('Connect your wallet first');
         throw new Error('Wallet not connected');
       }
       const positionAddr = pool.meteoraPosition;
       if (!positionAddr) {
-        toast.error('This pool entry is missing position data. Remove it from your list or refresh.');
+        toast.error('Something went wrong. Please try again');
         throw new Error('No position');
       }
       try {
@@ -1102,11 +1267,11 @@ export default function Liquidity({
     }
     if (!connected) {
       connect();
-      toast('Connect your wallet');
+      toast('Connect your wallet to continue');
       throw new Error('Wallet not connected');
     }
     if (!publicKey) {
-      toast.error('Connect your wallet');
+      toast.error('Connect your wallet first');
       throw new Error('Wallet not connected');
     }
     try {

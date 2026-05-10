@@ -266,9 +266,13 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
         network: env.network,
       });
 
-      setMintAddress(res.mint.toBase58());
+      const mintB58 = res.mint.toBase58();
+      setMintAddress(mintB58);
       setStatus('success');
-      toast.success('Token created');
+      const sym = form.symbol.trim().toUpperCase();
+      toast.success(
+        `Token created`,
+      );
     } catch (e) {
       const msg = parseSolanaError(e).message;
       toast.error(msg);

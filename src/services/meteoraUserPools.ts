@@ -3,6 +3,7 @@ import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { Connection, PublicKey, type Commitment } from '@solana/web3.js';
 import { env } from '../config/env';
 import type { UserPoolPosition } from './raydiumService';
+import { fetchSplMintSymbol } from './splTokenMetadata';
 
 type ParsedTokenExt = {
   parsed?: {
@@ -51,6 +52,29 @@ async function collectPositionNftMintCandidates(
   }
 
   return out;
+}
+
+/** Resolve Metaplex ticker for each Meteora row’s meme mint (parallel, cached per mint). */
+export async function enrichMeteoraPoolSymbols(
+  connection: Connection,
+  pools: UserPoolPosition[],
+): Promise<UserPoolPosition[]> {
+  const meteora = pools.filter((p) => p.isMeteoraPool);
+  if (meteora.length === 0) return pools;
+
+  const mints = [...new Set(meteora.map((p) => p.baseMint))];
+  const symByMint = new Map<string, string>();
+  await Promise.all(
+    mints.map(async (m) => {
+      symByMint.set(m, await fetchSplMintSymbol(connection, m));
+    }),
+  );
+
+  return pools.map((p) =>
+    p.isMeteoraPool
+      ? { ...p, baseSymbol: symByMint.get(p.baseMint) ?? p.baseSymbol }
+      : p,
+  );
 }
 
 /**

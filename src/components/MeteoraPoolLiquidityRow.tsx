@@ -128,7 +128,7 @@ export function MeteoraPoolLiquidityRow({
 
   const handleRemoveFromList = () => {
     removeMeteoraPoolFromStorage(walletAddress, pool.poolId);
-    toast.success('Removed from your saved pools');
+    toast.success(`Removed from saved pools · ${pairLabel}`);
     onRemovedFromStorage();
   };
 
