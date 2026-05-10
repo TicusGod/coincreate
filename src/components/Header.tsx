@@ -86,7 +86,7 @@ export default function Header({ currentPage, onPageChange }: HeaderProps) {
                     onClick={async () => {
                       try {
                         await navigator.clipboard.writeText(fullAddr);
-                        toast.success('Address copied');
+                        toast.success(`Address copied · ${shortAddress}`);
                         setWalletMenuOpen(false);
                       } catch {
                         toast.error('Could not copy');

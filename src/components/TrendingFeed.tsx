@@ -176,19 +176,21 @@ export default function TrendingFeed() {
       <div className="max-w-6xl mx-auto">
         <h1 className="text-3xl font-bold text-[#fafafa] text-center mb-8 tracking-tight">Trending on Pump.fun</h1>
 
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-1 bg-[#212225] rounded-[12px] p-1">
-            {(['trending', 'new'] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`h-8 px-4 rounded-[10px] text-sm font-semibold transition-all duration-150 capitalize select-none ${
-                  tab === t ? 'bg-[#86efac] text-[#052e16]' : 'text-[#696e77] hover:text-[#fafafa]'
-                }`}
-              >
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-              </button>
-            ))}
+        <div className="flex items-center justify-end mb-6">
+          <div className="hidden">
+            <div className="flex items-center gap-1 bg-[#212225] rounded-[12px] p-1">
+              {(['trending', 'new'] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`h-8 px-4 rounded-[10px] text-sm font-semibold transition-all duration-150 capitalize select-none ${
+                    tab === t ? 'bg-[#86efac] text-[#052e16]' : 'text-[#696e77] hover:text-[#fafafa]'
+                  }`}
+                >
+                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                </button>
+              ))}
+            </div>
           </div>
 
           <button

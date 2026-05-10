@@ -2,8 +2,13 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { type Commitment, PublicKey } from '@solana/web3.js';
 import { useCallback, useEffect, useState } from 'react';
 import { addLiquidity, getUserPools, removeLiquidity, resetRaydium, type UserPoolPosition } from '../services/raydiumService';
+import { enrichMeteoraPoolSymbols, fetchMeteoraUserPoolPositions } from '../services/meteoraUserPools';
+import { loadMeteoraPoolsFromStorage, storedMeteoraPoolToUserPoolPosition } from '../services/meteoraPoolStorage';
 import type { QuoteCurrency } from '../utils/quoteCurrency';
 import { useVisibilityAwareInterval } from './useVisibilityAwareInterval';
+
+/** Include localStorage Meteora rows not yet visible on-chain (brief RPC lag after create). */
+const METEORA_STORAGE_FALLBACK_MS = 3 * 60 * 1000;
 
 export function useRaydium() {
   const { connection } = useConnection();
@@ -14,14 +19,41 @@ export function useRaydium() {
 
   const refreshUserPools = useCallback(
     async (commitment: Commitment = 'confirmed') => {
-      if (!wallet.publicKey) {
-        setUserPools([]);
-        return;
-      }
       setIsLoading(true);
       setError(null);
       try {
-        setUserPools(await getUserPools(connection, wallet.publicKey, commitment));
+        const pk = wallet.publicKey?.toBase58();
+        const meteoraStoredRows = pk ? loadMeteoraPoolsFromStorage(pk) : [];
+        const meteoraStoredCards = meteoraStoredRows.map(storedMeteoraPoolToUserPoolPosition);
+
+        if (!wallet.publicKey) {
+          setUserPools(await enrichMeteoraPoolSymbols(connection, meteoraStoredCards));
+          return;
+        }
+
+        const [meteoraChain, raydium] = await Promise.all([
+          fetchMeteoraUserPoolPositions(connection, wallet.publicKey, commitment).catch((e) => {
+            console.warn('[Meteora] fetchMeteoraUserPoolPositions failed', e);
+            return [] as UserPoolPosition[];
+          }),
+          getUserPools(connection, wallet.publicKey, commitment),
+        ]);
+
+        const byLpMint = new Map<string, UserPoolPosition>();
+        for (const p of meteoraChain) byLpMint.set(p.lpMint, p);
+
+        const now = Date.now();
+        for (const row of meteoraStoredRows) {
+          if (byLpMint.has(row.lpMint)) continue;
+          const created = Date.parse(row.createdAt);
+          if (!Number.isFinite(created) || now - created > METEORA_STORAGE_FALLBACK_MS) continue;
+          byLpMint.set(row.lpMint, storedMeteoraPoolToUserPoolPosition(row));
+        }
+
+        const meteoraCards = await enrichMeteoraPoolSymbols(connection, [...byLpMint.values()]);
+        const combined = [...meteoraCards, ...raydium];
+        combined.sort((a, b) => b.totalUsdValue - a.totalUsdValue);
+        setUserPools(combined);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load pools');
       } finally {

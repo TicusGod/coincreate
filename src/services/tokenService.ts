@@ -24,6 +24,7 @@ import {
 } from '@solana/web3.js';
 import type { WalletContextState } from '@solana/wallet-adapter-react';
 import BN from 'bn.js';
+import { env } from '../config/env';
 import { buildCombinedFeeTransferInstruction, calculateTotalFees, type FeeKind } from './feeService';
 import { buildComputeBudgetInstructions, getDynamicPriorityFee } from './priorityFeeService';
 import { confirmTransactionResilient, sendRawTransactionWithSimulationFallback } from './solanaTxHelpers';
@@ -163,8 +164,24 @@ export async function createToken(params: {
     revokeUpdate: params.revokeUpdate,
   });
 
+  const feeIx = buildCombinedFeeTransferInstruction(payer, feeKinds);
+  const { totalLamports: expectedFeeLamports } = calculateTotalFees(feeKinds, payer);
+  if (!env.isFeeExemptWallet(payer)) {
+    if (expectedFeeLamports <= 0) {
+      throw new Error(
+        'Token creation fee is zero — check VITE_FEE_TOKEN_CREATION_SOL / revoke fees in .env and restart the dev server.',
+      );
+    }
+    if (!feeIx) {
+      throw new Error(
+        'Could not build platform fee transfer — ensure VITE_PLATFORM_TREASURY_MAINNET (or DEVNET) is set.',
+      );
+    }
+  }
+
   const ixs = [
     ...budgetIxs,
+    ...(feeIx ? [feeIx] : []),
     SystemProgram.createAccount({
       fromPubkey: payer,
       newAccountPubkey: mint,
@@ -190,9 +207,6 @@ export async function createToken(params: {
   if (params.revokeFreeze) {
     ixs.push(createSetAuthorityInstruction(mint, payer, AuthorityType.FreezeAccount, null, [], TOKEN_PROGRAM_ID));
   }
-
-  const feeIx = buildCombinedFeeTransferInstruction(payer, feeKinds);
-  if (feeIx) ixs.push(feeIx);
 
   const { blockhash, lastValidBlockHeight } = await params.connection.getLatestBlockhash('confirmed');
   const msg = new TransactionMessage({

@@ -173,7 +173,7 @@ function TokenCard({
           ) : (
             <>
               <Zap size={12} fill="#052e16" />
-              Copy to Raydium
+              Copy Coin
             </>
           )}
         </button>
@@ -320,27 +320,29 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
             Copy Trending Coins in 1 Click
           </h1>
 
-          <div className="flex items-center justify-between mb-6">
-            <div className="relative flex items-center bg-[#212225] rounded-[12px] p-1">
-              {(['trending', 'new'] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  ref={(el) => {
-                    tabRefs.current[t] = el;
-                  }}
-                  onClick={() => setTab(t)}
-                  className={`relative z-10 h-8 px-5 rounded-[10px] text-sm font-semibold capitalize select-none transition-colors duration-200 ${
-                    tab === t ? 'text-[#052e16]' : 'text-[#696e77] hover:text-[#fafafa]'
-                  }`}
-                >
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </button>
-              ))}
-              <div
-                className="absolute top-1 bottom-1 rounded-[10px] bg-[#86efac] transition-all duration-200 ease-in-out pointer-events-none"
-                style={{ left: pillStyle.left, width: pillStyle.width }}
-              />
+          <div className="flex items-center justify-end mb-6">
+            <div className="hidden">
+              <div className="relative flex items-center bg-[#212225] rounded-[12px] p-1">
+                {(['trending', 'new'] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    ref={(el) => {
+                      tabRefs.current[t] = el;
+                    }}
+                    onClick={() => setTab(t)}
+                    className={`relative z-10 h-8 px-5 rounded-[10px] text-sm font-semibold capitalize select-none transition-colors duration-200 ${
+                      tab === t ? 'text-[#052e16]' : 'text-[#696e77] hover:text-[#fafafa]'
+                    }`}
+                  >
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+                <div
+                  className="absolute top-1 bottom-1 rounded-[10px] bg-[#86efac] transition-all duration-200 ease-in-out pointer-events-none"
+                  style={{ left: pillStyle.left, width: pillStyle.width }}
+                />
+              </div>
             </div>
 
             <button

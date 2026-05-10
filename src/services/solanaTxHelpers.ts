@@ -1,8 +1,44 @@
-import type { Connection, TransactionSignature } from '@solana/web3.js';
+import { Transaction, type Connection, type Keypair, type TransactionSignature } from '@solana/web3.js';
 
 function isSimulationPreflightFailure(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e);
   return /simulation failed/i.test(msg);
+}
+
+/**
+ * Runs RPC simulation before the wallet so failures show real program logs instead of a generic
+ * "Unexpected error" from the adapter.
+ */
+export async function assertLegacyTransactionSimulationOk(
+  connection: Connection,
+  tx: Transaction,
+  partialSigners: Keypair[],
+): Promise<void> {
+  const serialized = tx.serialize({
+    requireAllSignatures: false,
+    verifySignatures: false,
+  });
+  const trial = Transaction.from(serialized);
+  for (const kp of partialSigners) {
+    trial.partialSign(kp);
+  }
+
+  const latest = await connection.getLatestBlockhash('confirmed');
+  trial.recentBlockhash = latest.blockhash;
+  trial.lastValidBlockHeight = latest.lastValidBlockHeight;
+
+  // Legacy Transaction uses the deprecated overload; VersionedTransaction gets SimulateTransactionConfig.
+  const sim = await connection.simulateTransaction(trial);
+
+  const err = sim.value.err;
+  if (err == null) return;
+
+  const logs = sim.value.logs?.filter((l): l is string => typeof l === 'string' && l.length > 0) ?? [];
+  const tail = logs.slice(-18).join('\n');
+  const errJson = typeof err === 'object' && err !== null ? JSON.stringify(err) : String(err);
+  throw new Error(
+    tail.length ? `Simulation failed (${errJson})\n${tail}` : `Simulation failed: ${errJson}`,
+  );
 }
 
 /**

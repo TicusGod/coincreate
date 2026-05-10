@@ -57,6 +57,15 @@ export type UserPoolPosition = {
    * Also used when the CPMM pair exists but cannot accept deposits (fully drained); see `detectPoolState`.
    */
   isDrained: boolean;
+  /** Legacy / unused local promo card (no on-chain LP). */
+  isPromoPool?: boolean;
+  /** Legacy Supabase demo row; table removed from app flows. */
+  isSupabasePool?: boolean;
+  /** Meteora DAMM v2 pool created via `createDammV2Pool` (position NFT = liquidity handle). */
+  isMeteoraPool?: boolean;
+  /** Meteora position PDA (optional; used for manage/remove). */
+  meteoraPosition?: string;
+  meteoraFeeBps?: number;
 };
 
 let raydiumCache: Raydium | null = null;
