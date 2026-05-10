@@ -10,16 +10,28 @@ import {
   MAX_SQRT_PRICE,
   MIN_SQRT_PRICE,
   derivePositionNftAccount,
+  calculateInitSqrtPrice,
+  calculateTransferFeeIncludedAmount,
   getAmountWithSlippage,
   getBaseFeeParams,
   getCurrentPoint,
   getFirstKey,
+  getLiquidityDeltaFromAmountA,
+  getLiquidityDeltaFromAmountB,
   getSecondKey,
   getTokenProgram,
   SwapMode,
   type RemoveLiquidityParams,
 } from '@meteora-ag/cp-amm-sdk';
-import { NATIVE_MINT, getAccount, getAssociatedTokenAddressSync, getMint } from '@solana/spl-token';
+import {
+  NATIVE_MINT,
+  getAccount,
+  getAssociatedTokenAddressSync,
+  getMint,
+  getTransferFeeConfig,
+  TOKEN_2022_PROGRAM_ID,
+  type Mint,
+} from '@solana/spl-token';
 import {
   Connection,
   Keypair,
@@ -133,6 +145,46 @@ async function tokenProgramId(connection: Connection, mint: PublicKey): Promise<
   const ai = await connection.getAccountInfo(mint, 'confirmed');
   if (!ai?.owner) throw new Error(`Mint account not found: ${mint.toBase58()}`);
   return ai.owner;
+}
+
+function bnMin(a: BN, b: BN): BN {
+  return a.lt(b) ? a : b;
+}
+
+/**
+ * Mint + epoch for Meteora pool math when Token-2022 transfer fees reduce vault credits vs gross debits.
+ */
+async function poolCreationTransferFeeMintInfo(
+  connection: Connection,
+  mint: PublicKey,
+  tokenProgram: PublicKey,
+): Promise<{ mint: Mint; currentEpoch: bigint } | undefined> {
+  if (!tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) return undefined;
+  const m = await getMint(connection, mint, 'confirmed', tokenProgram);
+  if (!getTransferFeeConfig(m)) return undefined;
+  const { epoch } = await connection.getEpochInfo('confirmed');
+  return { mint: m, currentEpoch: BigInt(epoch) };
+}
+
+/** SPL credits that land in pool vaults after Token-2022 transfer fees (WSOL/classic SPL unchanged). */
+function vaultCreditsAfterTransferFee(
+  grossTokenA: BN,
+  grossTokenB: BN,
+  infoA: { mint: Mint; currentEpoch: bigint } | undefined,
+  infoB: { mint: Mint; currentEpoch: bigint } | undefined,
+): { vaultA: BN; vaultB: BN } {
+  const feeA =
+    infoA != null
+      ? calculateTransferFeeIncludedAmount(grossTokenA, infoA.mint, infoA.currentEpoch).transferFee
+      : new BN(0);
+  const feeB =
+    infoB != null
+      ? calculateTransferFeeIncludedAmount(grossTokenB, infoB.mint, infoB.currentEpoch).transferFee
+      : new BN(0);
+  return {
+    vaultA: grossTokenA.sub(feeA),
+    vaultB: grossTokenB.sub(feeB),
+  };
 }
 
 /** Never deposit more meme raw lamports than the owner's ATA holds (fixes UI decimal mismatch & Token-2022 quirks). */
@@ -428,8 +480,7 @@ export async function createDammV2Pool(params: {
     tokenProgramId(params.connection, tokenBMint),
   ]);
 
-  const mintInfoB = await getMint(params.connection, tokenBMint, 'confirmed', tokenBProgram);
-  const decB = mintInfoB.decimals;
+  const { decimals: decB } = await getMint(params.connection, tokenBMint, 'confirmed', tokenBProgram);
 
   const cappedCreate = await clampMemeDepositAmountForSortedPair({
     connection: params.connection,
@@ -462,13 +513,31 @@ export async function createDammV2Pool(params: {
 
   const cpAmm = new CpAmm(params.connection);
 
-  const { initSqrtPrice, liquidityDelta } = cpAmm.preparePoolCreationParams({
+  const [transferFeeMintInfoA, transferFeeMintInfoB] = await Promise.all([
+    poolCreationTransferFeeMintInfo(params.connection, tokenAMint, tokenAProgram),
+    poolCreationTransferFeeMintInfo(params.connection, tokenBMint, tokenBProgram),
+  ]);
+  const { vaultA, vaultB } = vaultCreditsAfterTransferFee(
     tokenAAmount,
     tokenBAmount,
-    minSqrtPrice: MIN_SQRT_PRICE,
-    maxSqrtPrice: MAX_SQRT_PRICE,
-    collectFeeMode: CollectFeeMode.BothToken,
-  });
+    transferFeeMintInfoA,
+    transferFeeMintInfoB,
+  );
+  if (vaultA.lten(0) || vaultB.lten(0)) {
+    throw new Error(
+      'Deposit amount is too small after token transfer fees. Try slightly larger token and SOL amounts.',
+    );
+  }
+  /**
+   * `preparePoolCreationParams` uses gross amounts for `initSqrtPrice` but net legs for liquidity when fee info
+   * is passed; without fee info, vault credits are lower than assumed for Token-2022 + transfer fee mints,
+   * which triggers on-chain ExceededSlippage (6002). Price + liquidity must both derive from vault credits.
+   */
+  const initSqrtPrice = calculateInitSqrtPrice(vaultA, vaultB, MIN_SQRT_PRICE, MAX_SQRT_PRICE);
+  const liquidityDelta = bnMin(
+    getLiquidityDeltaFromAmountA(vaultA, initSqrtPrice, MAX_SQRT_PRICE, CollectFeeMode.BothToken),
+    getLiquidityDeltaFromAmountB(vaultB, MIN_SQRT_PRICE, initSqrtPrice, CollectFeeMode.BothToken),
+  );
 
   const baseFee = getBaseFeeParams(
     {

@@ -63,7 +63,7 @@ const METEORA_MIN_SEED_SOL_UI = 0.1;
 const METEORA_POOL_CREATE_RENT_SOL_UI = 0.03;
 /** Minimum DAMM v2 pool swap fee (0.25%); fixed — not shown in UI. */
 const METEORA_POOL_SWAP_FEE_BPS = 25;
-const METEORA_DEFAULT_SUPPLY_FRAC = 0.8;
+const METEORA_DEFAULT_SUPPLY_FRAC = 0.9;
 const METEORA_EXTRA_RESERVE_LAMPORTS = 80_000_000;
 /** If UI-computed raw amount exceeds ATA by ≤ this (rounding / float), clamp to wallet balance instead of blocking. */
 const METEORA_DEPOSIT_RAW_ROUNDING_SLACK = new BN(65_536);
@@ -1281,7 +1281,7 @@ export default function Liquidity({
                   }
                   className="text-[10px] font-bold text-[#86efac] hover:text-[#bbf7d0] px-1 transition-colors shrink-0"
                 >
-                  80%
+                  90%
                 </button>
                 <button
                   type="button"
@@ -1297,7 +1297,7 @@ export default function Liquidity({
 
               <div className="flex items-center gap-2 mb-2">
                 <SolIcon />
-                <label className="text-[#e4e4e7] font-semibold text-sm">SOL</label>
+                <label className="text-[#e4e4e7] font-semibold text-sm">Amount of SOL</label>
               </div>
               <p className="text-[#696e77] text-xs mb-5 leading-relaxed">
                 Pairing with SOL. An additional {env.fees.addLiquiditySol} SOL app fee applies to add liquidity.
