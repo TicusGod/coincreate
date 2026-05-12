@@ -721,6 +721,8 @@ export default function Liquidity({
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  /** Increment after manual refresh so Meteora rows re-fetch vault state / SOL price even when poolId is unchanged. */
+  const [meteoraDetailsReloadKey, setMeteoraDetailsReloadKey] = useState(0);
   const [walletTokens, setWalletTokens] = useState<WalletTokenOption[]>([]);
   const [loadingTokens, setLoadingTokens] = useState(false);
   const [selectedMint, setSelectedMint] = useState<string | null>(null);
@@ -972,6 +974,7 @@ export default function Liquidity({
     try {
       await refreshUserPools();
       await loadWalletTokens();
+      setMeteoraDetailsReloadKey((k) => k + 1);
     } finally {
       setRefreshing(false);
     }
@@ -1528,6 +1531,7 @@ export default function Liquidity({
                   return (
                     <MeteoraPoolLiquidityRow
                       key={p.poolId}
+                      reloadKey={meteoraDetailsReloadKey}
                       pool={p}
                       walletAddress={publicKey.toBase58()}
                       pairLabel={pairLabel(p)}

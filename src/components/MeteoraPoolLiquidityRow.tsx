@@ -73,6 +73,8 @@ type Props = {
   onOpenBoost: () => void;
   onOpenRemove: () => void;
   onRemovedFromStorage: () => void;
+  /** Bump from parent after “Your Pools” refresh so on-chain totals / prices refetch even when poolId is unchanged. */
+  reloadKey?: number;
 };
 
 export function MeteoraPoolLiquidityRow({
@@ -86,14 +88,15 @@ export function MeteoraPoolLiquidityRow({
   onOpenBoost,
   onOpenRemove,
   onRemovedFromStorage,
+  reloadKey = 0,
 }: Props) {
   const { connection } = useConnection();
   const [loading, setLoading] = useState(true);
   const [gone, setGone] = useState(false);
   const [memeUi, setMemeUi] = useState(0);
   const [solUi, setSolUi] = useState(0);
-  const [tvlUsd, setTvlUsd] = useState(0);
-  const [solEquiv, setSolEquiv] = useState<number | undefined>(undefined);
+  /** USD notion of pooled wrapped SOL only (not full pool TVL). */
+  const [solPoolUsd, setSolPoolUsd] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,28 +122,9 @@ export function MeteoraPoolLiquidityRow({
         const sUi = new Decimal(rawSol.toString()).div(new Decimal(10).pow(decSol)).toNumber();
         setMemeUi(mUi);
         setSolUi(sUi);
-        const prices = await getMultipleTokenPricesUsd([memeMint, wsol]);
-        const memePxOracle = Math.max(0, prices[memeMint] ?? 0);
+        const prices = await getMultipleTokenPricesUsd([wsol]);
         const solPx = Math.max(0, prices[wsol] ?? 0);
-        const solSideUsd = sUi * solPx;
-        const memeSideOracleUsd = mUi * memePxOracle;
-        /*
-         Jupiter often has no/usdPrice=0 for minutes-old memes → TVL would only reflect the SOL leg.
-         Dexscreener (~and similar UIs) value both balances; for a shallow CPMM, both legs are ~similar in USD.
-         When the meme oracle is missing or clearly inconsistent vs pool depth, use implied price from SOL leg.
-         */
-        let tvlUsd = memeSideOracleUsd + solSideUsd;
-        if (
-          solPx > 0 &&
-          sUi > 0 &&
-          mUi > 0 &&
-          (memePxOracle <= 0 || memeSideOracleUsd < solSideUsd * 0.15)
-        ) {
-          const impliedMemeUsd = solSideUsd;
-          tvlUsd = impliedMemeUsd + solSideUsd;
-        }
-        setTvlUsd(tvlUsd);
-        setSolEquiv(solPx > 0 ? tvlUsd / solPx : undefined);
+        setSolPoolUsd(sUi * solPx);
       } catch {
         if (!cancelled) setGone(true);
       } finally {
@@ -150,7 +134,7 @@ export function MeteoraPoolLiquidityRow({
     return () => {
       cancelled = true;
     };
-  }, [connection, pool.poolId, pool.baseMint]);
+  }, [connection, pool.poolId, pool.baseMint, reloadKey]);
 
   const handleRemoveFromList = () => {
     removeMeteoraPoolFromStorage(walletAddress, pool.poolId);
@@ -160,7 +144,7 @@ export function MeteoraPoolLiquidityRow({
 
   const displayMeme = loading ? '…' : gone ? '—' : formatCompact(memeUi);
   const displaySol = loading ? '…' : gone ? '—' : formatPoolSolUi(solUi);
-  const displayValue = loading ? '…' : gone ? '—' : formatCompactUsd(tvlUsd, 2);
+  const displaySolUsd = loading ? '…' : gone ? '—' : formatCompactUsd(solPoolUsd, 2);
 
   return (
     <div className="bg-[#18191b] border border-[#212225] rounded-[16px] p-5">
@@ -275,11 +259,8 @@ export function MeteoraPoolLiquidityRow({
           </div>
         </div>
         <div className="bg-[#111113] border border-[#212225] rounded-[12px] p-3">
-          <p className="text-[#696e77] text-xs mb-1">Est. value</p>
-          <p className="text-[#86efac] font-bold text-sm leading-tight">{displayValue}</p>
-          {solEquiv != null && Number.isFinite(solEquiv) && !loading && !gone ? (
-            <p className="text-[#696e77] text-xs font-semibold mt-1 leading-tight">≈ {formatCompact(solEquiv, 2)} SOL</p>
-          ) : null}
+          <p className="text-[#696e77] text-xs mb-1">Pool SOL ($)</p>
+          <p className="text-[#86efac] font-bold text-sm leading-tight">{displaySolUsd}</p>
         </div>
       </div>
     </div>
