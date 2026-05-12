@@ -36,6 +36,16 @@ function formatQuotePooledCompact(num: number): string {
   return num.toFixed(2);
 }
 
+/** SOL pool depth: prefer extra decimals vs quote compact so totals align with explorers (Dexscreener, etc.). */
+function formatPoolSolUi(num: number): string {
+  if (!Number.isFinite(num)) return '—';
+  const abs = Math.abs(num);
+  if (abs >= 1e6) return formatQuotePooledCompact(num);
+  if (abs >= 100) return num.toFixed(2);
+  if (abs >= 1) return num.toFixed(3);
+  return num.toFixed(4);
+}
+
 function formatCompact(num: number, smallFractionDigits = 6): string {
   if (!Number.isFinite(num)) return '—';
   const abs = Math.abs(num);
@@ -110,11 +120,27 @@ export function MeteoraPoolLiquidityRow({
         setMemeUi(mUi);
         setSolUi(sUi);
         const prices = await getMultipleTokenPricesUsd([memeMint, wsol]);
-        const memePx = prices[memeMint] ?? 0;
-        const solPx = prices[wsol] ?? 0;
-        const tvl = mUi * memePx + sUi * solPx;
-        setTvlUsd(tvl);
-        setSolEquiv(solPx > 0 ? tvl / solPx : undefined);
+        const memePxOracle = Math.max(0, prices[memeMint] ?? 0);
+        const solPx = Math.max(0, prices[wsol] ?? 0);
+        const solSideUsd = sUi * solPx;
+        const memeSideOracleUsd = mUi * memePxOracle;
+        /*
+         Jupiter often has no/usdPrice=0 for minutes-old memes → TVL would only reflect the SOL leg.
+         Dexscreener (~and similar UIs) value both balances; for a shallow CPMM, both legs are ~similar in USD.
+         When the meme oracle is missing or clearly inconsistent vs pool depth, use implied price from SOL leg.
+         */
+        let tvlUsd = memeSideOracleUsd + solSideUsd;
+        if (
+          solPx > 0 &&
+          sUi > 0 &&
+          mUi > 0 &&
+          (memePxOracle <= 0 || memeSideOracleUsd < solSideUsd * 0.15)
+        ) {
+          const impliedMemeUsd = solSideUsd;
+          tvlUsd = impliedMemeUsd + solSideUsd;
+        }
+        setTvlUsd(tvlUsd);
+        setSolEquiv(solPx > 0 ? tvlUsd / solPx : undefined);
       } catch {
         if (!cancelled) setGone(true);
       } finally {
@@ -133,7 +159,7 @@ export function MeteoraPoolLiquidityRow({
   };
 
   const displayMeme = loading ? '…' : gone ? '—' : formatCompact(memeUi);
-  const displaySol = loading ? '…' : gone ? '—' : formatQuotePooledCompact(solUi);
+  const displaySol = loading ? '…' : gone ? '—' : formatPoolSolUi(solUi);
   const displayValue = loading ? '…' : gone ? '—' : formatCompactUsd(tvlUsd, 2);
 
   return (
