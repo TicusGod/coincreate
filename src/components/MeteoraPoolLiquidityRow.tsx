@@ -259,7 +259,7 @@ export function MeteoraPoolLiquidityRow({
           </div>
         </div>
         <div className="bg-[#111113] border border-[#212225] rounded-[12px] p-3">
-          <p className="text-[#696e77] text-xs mb-1">Pool SOL ($)</p>
+          <p className="text-[#696e77] text-xs mb-1">Est. value ($)</p>
           <p className="text-[#86efac] font-bold text-sm leading-tight">{displaySolUsd}</p>
         </div>
       </div>
