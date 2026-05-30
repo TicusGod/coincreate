@@ -5,6 +5,7 @@ import {
   CP_AMM_PROGRAM_ID,
   CpAmm,
   DepositTokenNotAcceptedError,
+  cpAmmCoder,
   deriveCustomizablePoolAddress,
   derivePositionAddress,
   MAX_SQRT_PRICE,
@@ -21,7 +22,7 @@ import {
   getSecondKey,
   getTokenProgram,
   SwapMode,
-  type RemoveLiquidityParams,
+  type VestingState,
 } from '@meteora-ag/cp-amm-sdk';
 import {
   NATIVE_MINT,
@@ -44,6 +45,7 @@ import {
 } from '@solana/web3.js';
 import type { WalletContextState } from '@solana/wallet-adapter-react';
 import BN from 'bn.js';
+import bs58 from 'bs58';
 import { buildFeeTransferInstruction } from './feeService';
 import { buildComputeBudgetInstructions, getDynamicPriorityFee } from './priorityFeeService';
 import { assertLegacyTransactionSimulationOk } from './solanaTxHelpers';
@@ -64,6 +66,98 @@ const METEORA_POSITION_ACCOUNT_DATA_SIZE = ANCHOR_ACCOUNT_DISCRIMINATOR_SIZE + 4
 
 /** Small cushion for auxiliary accounts / rounding (not a duplicate of on-chain rent). */
 const METEORA_POOL_CREATE_OVERHEAD_BUFFER_LAMPORTS = 25_000;
+const HELIUS_GPA_V2_PAGE_LIMIT = 5000;
+const METEORA_VESTING_ACCOUNT_DISCRIMINATOR = bs58.encode(
+  Uint8Array.from([100, 149, 66, 138, 95, 200, 128, 241]),
+);
+const GPA_OVERLOAD_MARKERS = ['account index service overloaded', 'getprogramaccountsv2'];
+
+type MeteoraVesting = { account: PublicKey; vestingState: VestingState };
+
+function isGpaOverloadError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return GPA_OVERLOAD_MARKERS.some((marker) => msg.includes(marker));
+}
+
+function canUseHeliusV2(connection: Connection): boolean {
+  try {
+    const endpoint = connection.rpcEndpoint;
+    return typeof endpoint === 'string' && new URL(endpoint).hostname.includes('helius');
+  } catch {
+    return false;
+  }
+}
+
+async function fetchMeteoraVestingsByPositionV2(
+  connection: Connection,
+  position: PublicKey,
+): Promise<MeteoraVesting[]> {
+  let paginationKey: string | null | undefined = null;
+  const vestings: MeteoraVesting[] = [];
+
+  do {
+    const config = {
+      encoding: 'base64',
+      commitment: 'confirmed',
+      limit: HELIUS_GPA_V2_PAGE_LIMIT,
+      filters: [
+        { memcmp: { offset: 0, bytes: METEORA_VESTING_ACCOUNT_DISCRIMINATOR } },
+        { memcmp: { offset: ANCHOR_ACCOUNT_DISCRIMINATOR_SIZE, bytes: position.toBase58() } },
+      ],
+      ...(paginationKey ? { paginationKey } : {}),
+    };
+
+    const res = await fetch(connection.rpcEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: `meteora-vesting-${Date.now()}`,
+        method: 'getProgramAccountsV2',
+        params: [CP_AMM_PROGRAM_ID.toBase58(), config],
+      }),
+    });
+
+    const json = (await res.json()) as {
+      error?: { message?: string; code?: number };
+      result?: {
+        accounts?: Array<{ pubkey: string; account: { data: [string, string] } }>;
+        paginationKey?: string | null;
+      };
+    };
+
+    if (json.error) {
+      throw new Error(json.error.message ?? `getProgramAccountsV2 failed (${json.error.code ?? 'unknown'})`);
+    }
+
+    const page = json.result;
+    if (!page) throw new Error('getProgramAccountsV2 returned no result');
+
+    for (const row of page.accounts ?? []) {
+      const data = Buffer.from(row.account.data[0], 'base64');
+      const vestingState = cpAmmCoder.accounts.decode('vesting', data) as VestingState;
+      vestings.push({ account: new PublicKey(row.pubkey), vestingState });
+    }
+
+    paginationKey = page.paginationKey ?? null;
+  } while (paginationKey);
+
+  return vestings;
+}
+
+async function fetchMeteoraVestingsByPosition(
+  cpAmm: CpAmm,
+  connection: Connection,
+  position: PublicKey,
+): Promise<MeteoraVesting[]> {
+  try {
+    const vestings = await cpAmm.getAllVestingsByPosition(position);
+    return vestings.map((v) => ({ account: v.publicKey, vestingState: v.account }));
+  } catch (err) {
+    if (!isGpaOverloadError(err) || !canUseHeliusV2(connection)) throw err;
+    return fetchMeteoraVestingsByPositionV2(connection, position);
+  }
+}
 
 export type MeteoraCustomPoolCreateOverheadEstimate = {
   newAccountRentLamports: number;
@@ -229,20 +323,20 @@ async function poolCreationTransferFeeMintInfo(
   connection: Connection,
   mint: PublicKey,
   tokenProgram: PublicKey,
-): Promise<{ mint: Mint; currentEpoch: bigint } | undefined> {
+): Promise<{ mint: Mint; currentEpoch: number } | undefined> {
   if (!tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) return undefined;
   const m = await getMint(connection, mint, 'confirmed', tokenProgram);
   if (!getTransferFeeConfig(m)) return undefined;
   const { epoch } = await connection.getEpochInfo('confirmed');
-  return { mint: m, currentEpoch: BigInt(epoch) };
+  return { mint: m, currentEpoch: epoch };
 }
 
 /** SPL credits that land in pool vaults after Token-2022 transfer fees (WSOL/classic SPL unchanged). */
 function vaultCreditsAfterTransferFee(
   grossTokenA: BN,
   grossTokenB: BN,
-  infoA: { mint: Mint; currentEpoch: bigint } | undefined,
-  infoB: { mint: Mint; currentEpoch: bigint } | undefined,
+  infoA: { mint: Mint; currentEpoch: number } | undefined,
+  infoB: { mint: Mint; currentEpoch: number } | undefined,
 ): { vaultA: BN; vaultB: BN } {
   const feeA =
     infoA != null
@@ -729,11 +823,11 @@ export async function removeMeteoraLiquidity(params: {
   }
 
   const positionNftAccount = derivePositionNftAccount(params.positionNftMint);
-  const vestingsRaw = await cpAmm.getAllVestingsByPosition(params.positionAddress);
-  const vestings = vestingsRaw.map((v) => ({
-    account: v.publicKey,
-    vestingState: v.account,
-  })) as RemoveLiquidityParams['vestings'];
+  const vestings = await fetchMeteoraVestingsByPosition(
+    cpAmm,
+    params.connection,
+    params.positionAddress,
+  );
 
   const totalPosLiq = positionState.unlockedLiquidity
     .add(positionState.vestedLiquidity)
