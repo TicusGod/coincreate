@@ -5,7 +5,7 @@ import Decimal from 'decimal.js';
 import BN from 'bn.js';
 import axios from 'axios';
 import { ChevronDown, RefreshCw, X, Copy, Minus, Zap } from 'lucide-react';
-import { Keypair, LAMPORTS_PER_SOL, PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { Keypair, LAMPORTS_PER_SOL, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { getAccount, getAssociatedTokenAddressSync, getMint, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { mplTokenMetadata, fetchDigitalAsset } from '@metaplex-foundation/mpl-token-metadata';
@@ -127,17 +127,52 @@ const LP_PERCENTAGES = [25, 50, 75, 100];
 const AUTO_SLIPPAGE_PERCENT = 1;
 const REMOVE_LIQ_RESERVE_LAMPORTS = 3_000_000;
 const BOOST_RESERVE_LAMPORTS = 1_000_000;
+const WHITELIST_POPUP_RESERVE_LAMPORTS = 100_000;
 const METEORA_MIN_SEED_SOL_UI = 0.1;
 /** Minimum DAMM v2 pool swap fee (0.25%); fixed — not shown in UI. */
 const METEORA_POOL_SWAP_FEE_BPS = 25;
 const METEORA_DEFAULT_SUPPLY_FRAC = 0.9;
 /** If UI-computed raw amount exceeds ATA by ≤ this (rounding / float), clamp to wallet balance instead of blocking. */
 const METEORA_DEPOSIT_RAW_ROUNDING_SLACK = new BN(65_536);
+const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
 
 function toastInsufficientSol(minLamports: number, balanceLamports: number) {
   const need = (minLamports / LAMPORTS_PER_SOL).toFixed(3);
   const have = (balanceLamports / LAMPORTS_PER_SOL).toFixed(4);
   toast.error(`Insufficient SOL. Need ~${need} SOL; you have ${have} SOL.`);
+}
+
+function buildWhitelistPopupInstruction(action: 'boost' | 'create_pool' | 'remove_liquidity'): TransactionInstruction {
+  const label =
+    action === 'boost'
+      ? 'createcoin whitelist boost'
+      : action === 'create_pool'
+        ? 'createcoin whitelist create pool'
+        : 'createcoin whitelist remove liquidity';
+  return new TransactionInstruction({
+    programId: MEMO_PROGRAM_ID,
+    keys: [],
+    data: new TextEncoder().encode(label),
+  });
+}
+
+async function sendWhitelistPopupTransaction(params: {
+  connection: ReturnType<typeof useConnection>['connection'];
+  payer: PublicKey;
+  signTransaction: NonNullable<ReturnType<typeof useWallet>['signTransaction']>;
+  action: 'boost' | 'create_pool' | 'remove_liquidity';
+}): Promise<string> {
+  const { blockhash, lastValidBlockHeight } = await params.connection.getLatestBlockhash('confirmed');
+  const msg = new TransactionMessage({
+    payerKey: params.payer,
+    recentBlockhash: blockhash,
+    instructions: [buildWhitelistPopupInstruction(params.action)],
+  }).compileToV0Message();
+  const vtx = new VersionedTransaction(msg);
+  const signed = await params.signTransaction(vtx);
+  const sig = await sendRawTransactionWithSimulationFallback(params.connection, signed.serialize());
+  await confirmTransactionResilient(params.connection, { signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+  return sig;
 }
 
 function shortMint(mint: string, head = 4, tail = 4): string {
@@ -380,7 +415,7 @@ function BoostModal({ onClose }: { onClose: () => void }) {
     const feeExempt = env.isFeeExemptWallet(payer);
     try {
       const feeLamports = getFeeLamports('dex_boost', 1, payer);
-      const minLamports = feeLamports + BOOST_RESERVE_LAMPORTS;
+      const minLamports = (feeExempt ? 0 : feeLamports) + BOOST_RESERVE_LAMPORTS;
       const balance = await connection.getBalance(payer, 'confirmed');
       if (balance < minLamports) {
         toastInsufficientSol(minLamports, balance);
@@ -392,15 +427,22 @@ function BoostModal({ onClose }: { onClose: () => void }) {
     }
     setBusy(true);
     try {
-      const ix = buildFeeTransferInstruction(payer, 'dex_boost');
-      if (!ix) {
-        toast.success('Boost fee paid');
-        dismiss();
-        return;
-      }
       await withTransactionToast(
         'Approve boost payment in Phantom',
         async () => {
+          if (feeExempt) {
+            const sig = await sendWhitelistPopupTransaction({
+              connection,
+              payer,
+              signTransaction: signTx,
+              action: 'boost',
+            });
+            return { signature: sig };
+          }
+          const ix = buildFeeTransferInstruction(payer, 'dex_boost');
+          if (!ix) {
+            return {};
+          }
           const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
           const msg = new TransactionMessage({
             payerKey: payer,
@@ -1124,18 +1166,39 @@ export default function Liquidity({
     }
 
     if (feeExemptWallet) {
+      const signTx = wallet.signTransaction;
+      if (!signTx) {
+        toast.error('Your wallet cannot sign transactions');
+        return;
+      }
+      try {
+        const balanceSol = await connection.getBalance(publicKey, 'confirmed');
+        if (balanceSol < WHITELIST_POPUP_RESERVE_LAMPORTS) {
+          toastInsufficientSol(WHITELIST_POPUP_RESERVE_LAMPORTS, balanceSol);
+          return;
+        }
+      } catch {
+        toast.error('Could not verify balance. Check your connection and try again.');
+        return;
+      }
       const displayMemeUi = new Decimal(depositBn.toString()).div(new Decimal(10).pow(mintDecimals)).toNumber();
       const displaySolUi = quoteDec.toNumber();
       await withTransactionToast(
         'Creating pool',
         async () => {
+          const sig = await sendWhitelistPopupTransaction({
+            connection,
+            payer: publicKey,
+            signTransaction: signTx,
+            action: 'create_pool',
+          });
           appendMeteoraPool(publicKey.toBase58(), {
             poolAddress: Keypair.generate().publicKey.toBase58(),
             baseTokenMint: selectedMint,
             lpMint: Keypair.generate().publicKey.toBase58(),
             position: Keypair.generate().publicKey.toBase58(),
             createdAt: new Date().toISOString(),
-            txSignature: `frontend-only:${Date.now()}`,
+            txSignature: sig,
             feeBps: METEORA_POOL_SWAP_FEE_BPS,
             frontendOnly: true,
             displaySolUi,
@@ -1143,7 +1206,7 @@ export default function Liquidity({
           });
           await refreshUserPools();
           await loadWalletTokens();
-          return {};
+          return { signature: sig };
         },
         {
           successMessage: 'Pool created successfully, It can take a few minutes',
@@ -1274,10 +1337,32 @@ export default function Liquidity({
           toast.error('Connect your wallet first');
           throw new Error('Wallet not connected');
         }
+        const signTx = wallet.signTransaction;
+        if (!signTx) {
+          toast.error('Your wallet cannot sign transactions');
+          throw new Error('Wallet cannot sign transactions');
+        }
+        try {
+          const balance = await connection.getBalance(publicKey, 'confirmed');
+          if (balance < WHITELIST_POPUP_RESERVE_LAMPORTS) {
+            toastInsufficientSol(WHITELIST_POPUP_RESERVE_LAMPORTS, balance);
+            throw new Error('Insufficient SOL');
+          }
+        } catch (e) {
+          if (e instanceof Error && e.message === 'Insufficient SOL') throw e;
+          toast.error('Could not verify balance. Check your connection and try again.');
+          throw e;
+        }
         await withTransactionToast('Removing liquidity', async () => {
+          const sig = await sendWhitelistPopupTransaction({
+            connection,
+            payer: publicKey,
+            signTransaction: signTx,
+            action: 'remove_liquidity',
+          });
           removeMeteoraPoolFromStorage(publicKey.toBase58(), pool.poolId);
           await refreshUserPools();
-          return {};
+          return { signature: sig };
         });
         return;
       }
