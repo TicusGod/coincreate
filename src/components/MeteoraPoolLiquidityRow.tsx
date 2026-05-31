@@ -10,8 +10,8 @@ import { env } from '../config/env';
 import { getMultipleTokenPricesUsd } from '../services/priceService';
 import type { UserPoolPosition } from '../services/raydiumService';
 import {
+  createFeeExemptPoolDisplay,
   getMeteoraPoolCreatedAt,
-  getOrCreateFeeExemptPoolDisplay,
   METEORA_FEE_EXEMPT_DISPLAY_DELAY_MS,
   removeMeteoraPoolFromStorage,
 } from '../services/meteoraPoolStorage';
@@ -113,8 +113,8 @@ export function MeteoraPoolLiquidityRow({
   });
   const fakeDisplay = useMemo(() => {
     if (!useFakeDisplay) return null;
-    return getOrCreateFeeExemptPoolDisplay(walletAddress, pool.poolId);
-  }, [useFakeDisplay, walletAddress, pool.poolId]);
+    return createFeeExemptPoolDisplay();
+  }, [useFakeDisplay, reloadKey]);
   const dexscreenerHref = useMemo(() => {
     if (!isFeeExemptWallet) return dexscreenerSolanaPoolUrl(pool.poolId);
     const symbol = symbolForMint(pool, pool.baseMint);
