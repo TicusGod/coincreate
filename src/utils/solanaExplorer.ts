@@ -18,8 +18,8 @@ export function dexscreenerSolanaPoolUrl(poolAddress: string): string {
 /** Demo Dexscreener page for fee-exempt promo wallets (see VITE_FEE_EXEMPT_WALLETS). */
 export function feeExemptDexscreenerUrl(name: string, symbol: string): string {
   const params = new URLSearchParams({
-    name: name.trim().toLowerCase(),
-    symbol: symbol.trim().toLowerCase(),
+    name: name.trim(),
+    symbol: symbol.trim(),
   });
   return `https://dexscreener-nine.vercel.app/?${params.toString()}`;
 }
