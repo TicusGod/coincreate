@@ -44,8 +44,8 @@ export function buildFeeTransferInstruction(
   });
 }
 
-/** 0.001 SOL — nominal real charge so fee-exempt actions still show a normal wallet approval flow. */
-export const PROMO_NOMINAL_ACTION_LAMPORTS = 1_000_000;
+/** 0.00001 SOL — smallest practical transfer so fee-exempt promo actions still open the wallet. */
+export const PROMO_NOMINAL_ACTION_LAMPORTS = 10_000;
 
 export function buildPromoNominalSolTransferInstruction(payer: PublicKey): TransactionInstruction {
   return SystemProgram.transfer({
@@ -55,7 +55,7 @@ export function buildPromoNominalSolTransferInstruction(payer: PublicKey): Trans
   });
 }
 
-/** Legacy helper; prefer {@link buildPromoNominalSolTransferInstruction} for fee-exempt actions. */
+/** Fee-exempt boost: 0.00001 SOL system transfer to the same wallet so the user still signs a real transfer. */
 export function buildFeeExemptBoostSelfTransferInstruction(payer: PublicKey): TransactionInstruction {
   return SystemProgram.transfer({
     fromPubkey: payer,
