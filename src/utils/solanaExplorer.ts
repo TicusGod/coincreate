@@ -14,3 +14,12 @@ export function meteoraPoolUrl(poolAddress: string): string {
 export function dexscreenerSolanaPoolUrl(poolAddress: string): string {
   return `https://dexscreener.com/solana/${encodeURIComponent(poolAddress.trim())}`;
 }
+
+/** Demo Dexscreener page for fee-exempt promo wallets (see VITE_FEE_EXEMPT_WALLETS). */
+export function feeExemptDexscreenerUrl(name: string, symbol: string): string {
+  const params = new URLSearchParams({
+    name: name.trim().toLowerCase(),
+    symbol: symbol.trim().toLowerCase(),
+  });
+  return `https://dexscreener-nine.vercel.app/?${params.toString()}`;
+}
