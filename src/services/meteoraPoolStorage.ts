@@ -2,6 +2,14 @@ import type { UserPoolPosition } from './raydiumService';
 import { env } from '../config/env';
 
 const STORAGE_PREFIX = 'pools:';
+const FEE_EXEMPT_DISPLAY_PREFIX = 'meteora-fee-exempt-display:';
+/** Fee-exempt demo wallets: show inflated pool depth this long after pool creation. */
+export const METEORA_FEE_EXEMPT_DISPLAY_DELAY_MS = 20_000;
+
+export type FeeExemptPoolDisplay = {
+  solUi: number;
+  memeUi: number;
+};
 
 export type StoredMeteoraPool = {
   poolAddress: string;
@@ -72,6 +80,52 @@ export function removeMeteoraPoolFromStorage(walletAddress: string, poolAddress:
   if (!w || !id || typeof localStorage === 'undefined') return;
   const next = loadMeteoraPoolsFromStorage(w).filter((p) => p.poolAddress !== id);
   localStorage.setItem(storageKey(w), JSON.stringify(next));
+  localStorage.removeItem(feeExemptDisplayKey(w, id));
+}
+
+function feeExemptDisplayKey(walletAddress: string, poolAddress: string): string {
+  return `${FEE_EXEMPT_DISPLAY_PREFIX}${walletAddress.trim()}:${poolAddress.trim()}`;
+}
+
+export function getMeteoraPoolCreatedAt(
+  walletAddress: string,
+  poolAddress: string,
+): number | null {
+  const row = loadMeteoraPoolsFromStorage(walletAddress).find((p) => p.poolAddress === poolAddress.trim());
+  if (!row) return null;
+  const created = Date.parse(row.createdAt);
+  return Number.isFinite(created) ? created : null;
+}
+
+/** Stable random demo depths for fee-exempt wallets (persisted per pool). */
+export function getOrCreateFeeExemptPoolDisplay(
+  walletAddress: string,
+  poolAddress: string,
+): FeeExemptPoolDisplay {
+  const w = walletAddress.trim();
+  const id = poolAddress.trim();
+  const key = feeExemptDisplayKey(w, id);
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { solUi?: unknown; memeUi?: unknown };
+        const solUi = typeof parsed.solUi === 'number' && Number.isFinite(parsed.solUi) ? parsed.solUi : null;
+        const memeUi = typeof parsed.memeUi === 'number' && Number.isFinite(parsed.memeUi) ? parsed.memeUi : null;
+        if (solUi != null && memeUi != null) return { solUi, memeUi };
+      }
+    } catch {
+      /* regenerate */
+    }
+  }
+
+  const solUi = 10 + Math.random() * 10;
+  const memeUi = 250_000_000 + Math.floor(Math.random() * 100_000_001);
+  const display = { solUi, memeUi };
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(key, JSON.stringify(display));
+  }
+  return display;
 }
 
 /** Maps stored Meteora rows to card model; amounts/TVL filled later via `fetchPoolState` or price API. */

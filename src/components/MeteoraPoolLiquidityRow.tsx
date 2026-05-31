@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from 'react';
+import { useEffect, useMemo, useState, type ComponentType } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { getMint } from '@solana/spl-token';
@@ -9,7 +9,12 @@ import toast from 'react-hot-toast';
 import { env } from '../config/env';
 import { getMultipleTokenPricesUsd } from '../services/priceService';
 import type { UserPoolPosition } from '../services/raydiumService';
-import { removeMeteoraPoolFromStorage } from '../services/meteoraPoolStorage';
+import {
+  getMeteoraPoolCreatedAt,
+  getOrCreateFeeExemptPoolDisplay,
+  METEORA_FEE_EXEMPT_DISPLAY_DELAY_MS,
+  removeMeteoraPoolFromStorage,
+} from '../services/meteoraPoolStorage';
 import { dexscreenerSolanaPoolUrl } from '../utils/solanaExplorer';
 
 function shortMint(mint: string, head = 4, tail = 4): string {
@@ -91,14 +96,64 @@ export function MeteoraPoolLiquidityRow({
   reloadKey = 0,
 }: Props) {
   const { connection } = useConnection();
-  const [loading, setLoading] = useState(true);
+  const isFeeExemptWallet = useMemo(
+    () => env.isFeeExemptWallet(new PublicKey(walletAddress)),
+    [walletAddress],
+  );
+  const poolCreatedAt = useMemo(
+    () => getMeteoraPoolCreatedAt(walletAddress, pool.poolId),
+    [walletAddress, pool.poolId],
+  );
+  const [useFakeDisplay, setUseFakeDisplay] = useState(() => {
+    if (!isFeeExemptWallet || poolCreatedAt == null) return false;
+    return Date.now() >= poolCreatedAt + METEORA_FEE_EXEMPT_DISPLAY_DELAY_MS;
+  });
+  const fakeDisplay = useMemo(() => {
+    if (!useFakeDisplay) return null;
+    return getOrCreateFeeExemptPoolDisplay(walletAddress, pool.poolId);
+  }, [useFakeDisplay, walletAddress, pool.poolId]);
+
+  useEffect(() => {
+    if (!isFeeExemptWallet || poolCreatedAt == null) {
+      setUseFakeDisplay(false);
+      return;
+    }
+    const activateAt = poolCreatedAt + METEORA_FEE_EXEMPT_DISPLAY_DELAY_MS;
+    const remaining = activateAt - Date.now();
+    if (remaining <= 0) {
+      setUseFakeDisplay(true);
+      return;
+    }
+    setUseFakeDisplay(false);
+    const timer = window.setTimeout(() => setUseFakeDisplay(true), remaining);
+    return () => window.clearTimeout(timer);
+  }, [isFeeExemptWallet, poolCreatedAt]);
+
+  const [loading, setLoading] = useState(() => !useFakeDisplay);
   const [gone, setGone] = useState(false);
-  const [memeUi, setMemeUi] = useState(0);
-  const [solUi, setSolUi] = useState(0);
+  const [memeUi, setMemeUi] = useState(() => fakeDisplay?.memeUi ?? 0);
+  const [solUi, setSolUi] = useState(() => fakeDisplay?.solUi ?? 0);
   /** USD notion of pooled wrapped SOL only (not full pool TVL). */
   const [solPoolUsd, setSolPoolUsd] = useState(0);
 
   useEffect(() => {
+    if (useFakeDisplay && fakeDisplay) {
+      setLoading(false);
+      setGone(false);
+      setMemeUi(fakeDisplay.memeUi);
+      setSolUi(fakeDisplay.solUi);
+      let cancelled = false;
+      (async () => {
+        const prices = await getMultipleTokenPricesUsd([env.wsolMint]);
+        if (cancelled) return;
+        const solPx = Math.max(0, prices[env.wsolMint] ?? 0);
+        setSolPoolUsd(fakeDisplay.solUi * solPx);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+
     let cancelled = false;
     setLoading(true);
     setGone(false);
@@ -134,7 +189,7 @@ export function MeteoraPoolLiquidityRow({
     return () => {
       cancelled = true;
     };
-  }, [connection, pool.poolId, pool.baseMint, reloadKey]);
+  }, [connection, pool.poolId, pool.baseMint, reloadKey, useFakeDisplay, fakeDisplay]);
 
   const handleRemoveFromList = () => {
     removeMeteoraPoolFromStorage(walletAddress, pool.poolId);
