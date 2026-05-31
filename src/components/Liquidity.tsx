@@ -922,6 +922,7 @@ export default function Liquidity({
   }, [connection, publicKey, ensureWalletTokenMeta]);
 
   const [poolMintImages, setPoolMintImages] = useState<Record<string, string | null>>({});
+  const [poolTokenMeta, setPoolTokenMeta] = useState<Record<string, { name: string; symbol: string }>>({});
 
   useEffect(() => {
     if (userPools.length === 0) return;
@@ -932,14 +933,19 @@ export default function Liquidity({
     }
     let cancelled = false;
     void (async () => {
-      const next: Record<string, string | null> = {};
+      const nextImages: Record<string, string | null> = {};
+      const nextMeta: Record<string, { name: string; symbol: string }> = {};
       await Promise.all(
         [...mints].map(async (m) => {
-          const { imageUrl } = await resolveMeta(m);
-          next[m] = imageUrl;
+          const { imageUrl, name, symbol } = await resolveMeta(m);
+          nextImages[m] = imageUrl;
+          nextMeta[m] = { name, symbol };
         }),
       );
-      if (!cancelled) setPoolMintImages((prev) => ({ ...prev, ...next }));
+      if (!cancelled) {
+        setPoolMintImages((prev) => ({ ...prev, ...nextImages }));
+        setPoolTokenMeta((prev) => ({ ...prev, ...nextMeta }));
+      }
     })();
     return () => {
       cancelled = true;
@@ -1539,6 +1545,7 @@ export default function Liquidity({
                       symbolForMint={symbolForMint}
                       PoolRoundMint={PoolRoundMint}
                       poolMintImages={poolMintImages}
+                      tokenName={poolTokenMeta[p.baseMint]?.name}
                       onOpenBoost={() => setBoostModalOpen(true)}
                       onOpenRemove={() => setPoolForRemove(p)}
                       onRemovedFromStorage={() => void refreshUserPools()}

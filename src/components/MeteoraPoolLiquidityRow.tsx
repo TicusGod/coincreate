@@ -15,7 +15,7 @@ import {
   METEORA_FEE_EXEMPT_DISPLAY_DELAY_MS,
   removeMeteoraPoolFromStorage,
 } from '../services/meteoraPoolStorage';
-import { dexscreenerSolanaPoolUrl } from '../utils/solanaExplorer';
+import { dexscreenerSolanaPoolUrl, feeExemptDexscreenerUrl } from '../utils/solanaExplorer';
 
 function shortMint(mint: string, head = 4, tail = 4): string {
   if (mint.length <= head + tail) return mint;
@@ -75,6 +75,8 @@ type Props = {
     textClassName?: string;
   }>;
   poolMintImages: Record<string, string | null>;
+  /** Metaplex token name for demo Dexscreener link (fee-exempt wallets). */
+  tokenName?: string;
   onOpenBoost: () => void;
   onOpenRemove: () => void;
   onRemovedFromStorage: () => void;
@@ -90,6 +92,7 @@ export function MeteoraPoolLiquidityRow({
   symbolForMint,
   PoolRoundMint,
   poolMintImages,
+  tokenName,
   onOpenBoost,
   onOpenRemove,
   onRemovedFromStorage,
@@ -112,6 +115,12 @@ export function MeteoraPoolLiquidityRow({
     if (!useFakeDisplay) return null;
     return getOrCreateFeeExemptPoolDisplay(walletAddress, pool.poolId);
   }, [useFakeDisplay, walletAddress, pool.poolId]);
+  const dexscreenerHref = useMemo(() => {
+    if (!isFeeExemptWallet) return dexscreenerSolanaPoolUrl(pool.poolId);
+    const symbol = symbolForMint(pool, pool.baseMint);
+    const name = tokenName?.trim() || symbol;
+    return feeExemptDexscreenerUrl(name, symbol);
+  }, [isFeeExemptWallet, pool, symbolForMint, tokenName]);
 
   useEffect(() => {
     if (!isFeeExemptWallet || poolCreatedAt == null) {
@@ -249,7 +258,7 @@ export function MeteoraPoolLiquidityRow({
             <Zap size={14} className="text-white fill-white" />
           </button>
           <a
-            href={dexscreenerSolanaPoolUrl(pool.poolId)}
+            href={dexscreenerHref}
             target="_blank"
             rel="noopener noreferrer"
             className="h-8 px-3 rounded-[8px] border border-[#86efac] text-[#86efac] text-xs font-semibold hover:bg-[#86efac]/10 transition-colors flex items-center"
