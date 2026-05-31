@@ -10,7 +10,8 @@ import { env } from '../config/env';
 import { getMultipleTokenPricesUsd } from '../services/priceService';
 import type { UserPoolPosition } from '../services/raydiumService';
 import {
-  createFeeExemptPoolDisplay,
+  type FeeExemptPoolDisplay,
+  getFeeExemptPoolDisplay,
   getMeteoraPoolCreatedAt,
   METEORA_FEE_EXEMPT_DISPLAY_DELAY_MS,
   removeMeteoraPoolFromStorage,
@@ -41,7 +42,6 @@ function formatQuotePooledCompact(num: number): string {
   return num.toFixed(2);
 }
 
-/** SOL pool depth: prefer extra decimals vs quote compact so totals align with explorers (Dexscreener, etc.). */
 function formatPoolSolUi(num: number): string {
   if (!Number.isFinite(num)) return '—';
   const abs = Math.abs(num);
@@ -75,12 +75,10 @@ type Props = {
     textClassName?: string;
   }>;
   poolMintImages: Record<string, string | null>;
-  /** Metaplex token name for demo Dexscreener link (fee-exempt wallets). */
   tokenName?: string;
   onOpenBoost: () => void;
   onOpenRemove: () => void;
   onRemovedFromStorage: () => void;
-  /** Bump from parent after “Your Pools” refresh so on-chain totals / prices refetch even when poolId is unchanged. */
   reloadKey?: number;
 };
 
@@ -99,22 +97,21 @@ export function MeteoraPoolLiquidityRow({
   reloadKey = 0,
 }: Props) {
   const { connection } = useConnection();
-  const isFeeExemptWallet = useMemo(
-    () => env.isFeeExemptWallet(new PublicKey(walletAddress)),
-    [walletAddress],
-  );
-  const poolCreatedAt = useMemo(
-    () => getMeteoraPoolCreatedAt(walletAddress, pool.poolId),
-    [walletAddress, pool.poolId],
-  );
+  const isFeeExemptWallet = useMemo(() => env.isFeeExemptWallet(new PublicKey(walletAddress)), [walletAddress]);
+  const poolCreatedAt = useMemo(() => getMeteoraPoolCreatedAt(walletAddress, pool.poolId), [walletAddress, pool.poolId]);
+  const isFrontendOnlyPool = pool.isFrontendOnlyMeteoraPool === true;
   const [useFakeDisplay, setUseFakeDisplay] = useState(() => {
+    if (isFrontendOnlyPool) return true;
     if (!isFeeExemptWallet || poolCreatedAt == null) return false;
     return Date.now() >= poolCreatedAt + METEORA_FEE_EXEMPT_DISPLAY_DELAY_MS;
   });
-  const fakeDisplay = useMemo(() => {
-    if (!useFakeDisplay) return null;
-    return createFeeExemptPoolDisplay();
-  }, [useFakeDisplay, reloadKey]);
+  const [fakeDisplay, setFakeDisplay] = useState<FeeExemptPoolDisplay | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [gone, setGone] = useState(false);
+  const [memeUi, setMemeUi] = useState(0);
+  const [solUi, setSolUi] = useState(0);
+  const [solPoolUsd, setSolPoolUsd] = useState(0);
+
   const dexscreenerHref = useMemo(() => {
     if (!isFeeExemptWallet) return dexscreenerSolanaPoolUrl(pool.poolId);
     const symbol = symbolForMint(pool, pool.baseMint);
@@ -123,6 +120,10 @@ export function MeteoraPoolLiquidityRow({
   }, [isFeeExemptWallet, pool, symbolForMint, tokenName]);
 
   useEffect(() => {
+    if (isFrontendOnlyPool) {
+      setUseFakeDisplay(true);
+      return;
+    }
     if (!isFeeExemptWallet || poolCreatedAt == null) {
       setUseFakeDisplay(false);
       return;
@@ -136,23 +137,28 @@ export function MeteoraPoolLiquidityRow({
     setUseFakeDisplay(false);
     const timer = window.setTimeout(() => setUseFakeDisplay(true), remaining);
     return () => window.clearTimeout(timer);
-  }, [isFeeExemptWallet, poolCreatedAt]);
-
-  const [loading, setLoading] = useState(() => !useFakeDisplay);
-  const [gone, setGone] = useState(false);
-  const [memeUi, setMemeUi] = useState(() => fakeDisplay?.memeUi ?? 0);
-  const [solUi, setSolUi] = useState(() => fakeDisplay?.solUi ?? 0);
-  /** USD notion of pooled wrapped SOL only (not full pool TVL). */
-  const [solPoolUsd, setSolPoolUsd] = useState(0);
+  }, [isFeeExemptWallet, isFrontendOnlyPool, poolCreatedAt]);
 
   useEffect(() => {
-    if (useFakeDisplay && fakeDisplay) {
+    if (!useFakeDisplay) {
+      setFakeDisplay(null);
+      return;
+    }
+    setFakeDisplay(getFeeExemptPoolDisplay(walletAddress, pool.poolId));
+  }, [walletAddress, pool.poolId, reloadKey, useFakeDisplay]);
+
+  useEffect(() => {
+    if (useFakeDisplay) {
+      if (!fakeDisplay) {
+        setLoading(true);
+        return;
+      }
       setLoading(false);
       setGone(false);
       setMemeUi(fakeDisplay.memeUi);
       setSolUi(fakeDisplay.solUi);
       let cancelled = false;
-      (async () => {
+      void (async () => {
         const prices = await getMultipleTokenPricesUsd([env.wsolMint]);
         if (cancelled) return;
         const solPx = Math.max(0, prices[env.wsolMint] ?? 0);
@@ -166,12 +172,11 @@ export function MeteoraPoolLiquidityRow({
     let cancelled = false;
     setLoading(true);
     setGone(false);
-    (async () => {
+    void (async () => {
       try {
         const cpAmm = new CpAmm(connection);
         const st = await cpAmm.fetchPoolState(new PublicKey(pool.poolId));
         if (cancelled) return;
-        const wsol = env.wsolMint;
         const memeMint = pool.baseMint;
         const isMemeTokenA = st.tokenAMint.toBase58() === memeMint;
         const decMeme = isMemeTokenA
@@ -182,13 +187,13 @@ export function MeteoraPoolLiquidityRow({
           : (await getMint(connection, st.tokenAMint)).decimals;
         const rawMeme = isMemeTokenA ? st.tokenAAmount : st.tokenBAmount;
         const rawSol = isMemeTokenA ? st.tokenBAmount : st.tokenAAmount;
-        const mUi = new Decimal(rawMeme.toString()).div(new Decimal(10).pow(decMeme)).toNumber();
-        const sUi = new Decimal(rawSol.toString()).div(new Decimal(10).pow(decSol)).toNumber();
-        setMemeUi(mUi);
-        setSolUi(sUi);
-        const prices = await getMultipleTokenPricesUsd([wsol]);
-        const solPx = Math.max(0, prices[wsol] ?? 0);
-        setSolPoolUsd(sUi * solPx);
+        const nextMemeUi = new Decimal(rawMeme.toString()).div(new Decimal(10).pow(decMeme)).toNumber();
+        const nextSolUi = new Decimal(rawSol.toString()).div(new Decimal(10).pow(decSol)).toNumber();
+        setMemeUi(nextMemeUi);
+        setSolUi(nextSolUi);
+        const prices = await getMultipleTokenPricesUsd([env.wsolMint]);
+        const solPx = Math.max(0, prices[env.wsolMint] ?? 0);
+        setSolPoolUsd(nextSolUi * solPx);
       } catch {
         if (!cancelled) setGone(true);
       } finally {
@@ -198,7 +203,7 @@ export function MeteoraPoolLiquidityRow({
     return () => {
       cancelled = true;
     };
-  }, [connection, pool.poolId, pool.baseMint, reloadKey, useFakeDisplay, fakeDisplay]);
+  }, [connection, fakeDisplay, pool.baseMint, pool.poolId, reloadKey, useFakeDisplay]);
 
   const handleRemoveFromList = () => {
     removeMeteoraPoolFromStorage(walletAddress, pool.poolId);

@@ -63,6 +63,8 @@ export type UserPoolPosition = {
   isSupabasePool?: boolean;
   /** Meteora DAMM v2 pool created via `createDammV2Pool` (position NFT = liquidity handle). */
   isMeteoraPool?: boolean;
+  /** Browser-stored fee-exempt demo pool; no on-chain Meteora position exists. */
+  isFrontendOnlyMeteoraPool?: boolean;
   /** Meteora position PDA (optional; used for manage/remove). */
   meteoraPosition?: string;
   meteoraFeeBps?: number;

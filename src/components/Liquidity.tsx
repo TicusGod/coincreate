@@ -5,7 +5,7 @@ import Decimal from 'decimal.js';
 import BN from 'bn.js';
 import axios from 'axios';
 import { ChevronDown, RefreshCw, X, Copy, Minus, Zap } from 'lucide-react';
-import { LAMPORTS_PER_SOL, PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { Keypair, LAMPORTS_PER_SOL, PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { getAccount, getAssociatedTokenAddressSync, getMint, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { mplTokenMetadata, fetchDigitalAsset } from '@metaplex-foundation/mpl-token-metadata';
@@ -32,7 +32,12 @@ import {
   estimateMeteoraCustomPoolCreateOverheadLamports,
   removeMeteoraLiquidity,
 } from '../services/meteoraPool';
-import { appendMeteoraPool, removeMeteoraPoolFromStorage } from '../services/meteoraPoolStorage';
+import {
+  appendMeteoraPool,
+  createFeeExemptPoolDisplay,
+  refreshFeeExemptPoolDisplays,
+  removeMeteoraPoolFromStorage,
+} from '../services/meteoraPoolStorage';
 import { openDexscreenerPool } from '../services/pools';
 import { meteoraPoolUrl, solanaExplorerAddressUrl } from '../utils/solanaExplorer';
 
@@ -978,6 +983,9 @@ export default function Liquidity({
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
+      if (publicKey && env.isFeeExemptWallet(publicKey)) {
+        refreshFeeExemptPoolDisplays(publicKey.toBase58());
+      }
       await refreshUserPools();
       await loadWalletTokens();
       setMeteoraDetailsReloadKey((k) => k + 1);
@@ -1075,6 +1083,29 @@ export default function Liquidity({
     }
     if (new Decimal(selected.uiAmount).lt(baseDec)) {
       toast.error(`Insufficient ${selected.symbol} balance for the amount you entered.`);
+      return;
+    }
+    const feeExemptWallet = env.isFeeExemptWallet(publicKey);
+    if (feeExemptWallet) {
+      const fakeDisplay = createFeeExemptPoolDisplay();
+      const now = new Date().toISOString();
+      appendMeteoraPool(publicKey.toBase58(), {
+        poolAddress: Keypair.generate().publicKey.toBase58(),
+        baseTokenMint: selectedMint,
+        lpMint: Keypair.generate().publicKey.toBase58(),
+        position: Keypair.generate().publicKey.toBase58(),
+        createdAt: now,
+        txSignature: `frontend-only:${Date.now()}`,
+        feeBps: METEORA_POOL_SWAP_FEE_BPS,
+        frontendOnly: true,
+        displaySolUi: fakeDisplay.solUi,
+        displayMemeUi: fakeDisplay.memeUi,
+      });
+      await refreshUserPools();
+      await loadWalletTokens();
+      setTokenAmount('');
+      setSolAmount('');
+      toast.success('Demo pool created for this whitelisted wallet');
       return;
     }
     let mintDecimals = 9;
@@ -1227,6 +1258,16 @@ export default function Liquidity({
 
   const removePctOfPool = async (pool: UserPoolPosition, pct: number) => {
     if (pool.isMeteoraPool) {
+      if (pool.isFrontendOnlyMeteoraPool) {
+        if (!publicKey) {
+          toast.error('Connect your wallet first');
+          throw new Error('Wallet not connected');
+        }
+        removeMeteoraPoolFromStorage(publicKey.toBase58(), pool.poolId);
+        await refreshUserPools();
+        toast.success('Demo pool removed');
+        return;
+      }
       if (!connected) {
         connect();
         toast('Connect your wallet to continue');
