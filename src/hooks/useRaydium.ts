@@ -45,6 +45,10 @@ export function useRaydium() {
         const now = Date.now();
         for (const row of meteoraStoredRows) {
           if (byLpMint.has(row.lpMint)) continue;
+          if (row.frontendOnly) {
+            byLpMint.set(row.lpMint, storedMeteoraPoolToUserPoolPosition(row));
+            continue;
+          }
           const created = Date.parse(row.createdAt);
           if (!Number.isFinite(created) || now - created > METEORA_STORAGE_FALLBACK_MS) continue;
           byLpMint.set(row.lpMint, storedMeteoraPoolToUserPoolPosition(row));

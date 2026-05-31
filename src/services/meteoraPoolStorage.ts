@@ -20,10 +20,20 @@ export type StoredMeteoraPool = {
   createdAt: string;
   txSignature: string;
   feeBps: number;
+  /** True when this is a local-only demo pool for a fee-exempt wallet. */
+  frontendOnly?: boolean;
+  /** Stable fake UI amounts; rotated only by manual refresh. */
+  displaySolUi?: number;
+  displayMemeUi?: number;
 };
 
 function storageKey(walletAddress: string): string {
   return `${STORAGE_PREFIX}${walletAddress.trim()}`;
+}
+
+function persistMeteoraPools(walletAddress: string, rows: StoredMeteoraPool[]): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(storageKey(walletAddress), JSON.stringify(rows));
 }
 
 export function loadMeteoraPoolsFromStorage(walletAddress: string | null | undefined): StoredMeteoraPool[] {
@@ -46,6 +56,10 @@ export function loadMeteoraPoolsFromStorage(walletAddress: string | null | undef
       const createdAt = typeof r.createdAt === 'string' ? r.createdAt : '';
       const txSignature = typeof r.txSignature === 'string' ? r.txSignature.trim() : '';
       const feeBps = typeof r.feeBps === 'number' && Number.isFinite(r.feeBps) ? r.feeBps : 100;
+      const frontendOnly = r.frontendOnly === true;
+      const displaySolUi = typeof r.displaySolUi === 'number' && Number.isFinite(r.displaySolUi) ? r.displaySolUi : undefined;
+      const displayMemeUi =
+        typeof r.displayMemeUi === 'number' && Number.isFinite(r.displayMemeUi) ? r.displayMemeUi : undefined;
       if (!poolAddress || !baseTokenMint || !lpMint || !createdAt || !txSignature) continue;
       if (seen.has(poolAddress)) continue;
       seen.add(poolAddress);
@@ -57,6 +71,9 @@ export function loadMeteoraPoolsFromStorage(walletAddress: string | null | undef
         createdAt,
         txSignature,
         feeBps,
+        frontendOnly,
+        displaySolUi,
+        displayMemeUi,
       });
     }
     return out;
@@ -70,7 +87,7 @@ export function appendMeteoraPool(walletAddress: string, record: StoredMeteoraPo
   if (!w || typeof localStorage === 'undefined') return;
   const prev = loadMeteoraPoolsFromStorage(w).filter((p) => p.poolAddress !== record.poolAddress);
   prev.unshift(record);
-  localStorage.setItem(storageKey(w), JSON.stringify(prev));
+  persistMeteoraPools(w, prev);
 }
 
 export function removeMeteoraPoolFromStorage(walletAddress: string, poolAddress: string): void {
@@ -78,7 +95,7 @@ export function removeMeteoraPoolFromStorage(walletAddress: string, poolAddress:
   const id = poolAddress.trim();
   if (!w || !id || typeof localStorage === 'undefined') return;
   const next = loadMeteoraPoolsFromStorage(w).filter((p) => p.poolAddress !== id);
-  localStorage.setItem(storageKey(w), JSON.stringify(next));
+  persistMeteoraPools(w, next);
 }
 
 export function getMeteoraPoolCreatedAt(
@@ -97,6 +114,46 @@ export function createFeeExemptPoolDisplay(): FeeExemptPoolDisplay {
     solUi: 10 + Math.random() * 10,
     memeUi: 250_000_000 + Math.floor(Math.random() * 100_000_001),
   };
+}
+
+export function getFeeExemptPoolDisplay(
+  walletAddress: string,
+  poolAddress: string,
+): FeeExemptPoolDisplay | null {
+  const w = walletAddress.trim();
+  const id = poolAddress.trim();
+  if (!w || !id) return null;
+  const rows = loadMeteoraPoolsFromStorage(w);
+  const idx = rows.findIndex((p) => p.poolAddress === id);
+  if (idx < 0) return null;
+  const row = rows[idx]!;
+  if (Number.isFinite(row.displaySolUi) && Number.isFinite(row.displayMemeUi)) {
+    return { solUi: row.displaySolUi!, memeUi: row.displayMemeUi! };
+  }
+  const nextDisplay = createFeeExemptPoolDisplay();
+  rows[idx] = {
+    ...row,
+    displaySolUi: nextDisplay.solUi,
+    displayMemeUi: nextDisplay.memeUi,
+  };
+  persistMeteoraPools(w, rows);
+  return nextDisplay;
+}
+
+export function refreshFeeExemptPoolDisplays(walletAddress: string): void {
+  const w = walletAddress.trim();
+  if (!w) return;
+  const rows = loadMeteoraPoolsFromStorage(w);
+  if (rows.length === 0) return;
+  const next = rows.map((row) => {
+    const display = createFeeExemptPoolDisplay();
+    return {
+      ...row,
+      displaySolUi: display.solUi,
+      displayMemeUi: display.memeUi,
+    };
+  });
+  persistMeteoraPools(w, next);
 }
 
 /** Maps stored Meteora rows to card model; amounts/TVL filled later via `fetchPoolState` or price API. */
@@ -120,6 +177,7 @@ export function storedMeteoraPoolToUserPoolPosition(row: StoredMeteoraPool): Use
     poolTvlUsd: 0,
     isDrained: false,
     isMeteoraPool: true,
+    isFrontendOnlyMeteoraPool: row.frontendOnly === true,
     meteoraPosition: row.position || undefined,
     meteoraFeeBps: row.feeBps,
   };
