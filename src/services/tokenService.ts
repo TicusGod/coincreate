@@ -19,6 +19,7 @@ import {
   Keypair,
   PublicKey,
   SystemProgram,
+  SystemInstruction,
   TransactionMessage,
   VersionedTransaction,
 } from '@solana/web3.js';
@@ -38,6 +39,31 @@ export type CreationStage =
   | 'awaiting_signature'
   | 'confirming'
   | 'done';
+
+function assertContainsExpectedTreasuryTransfer(
+  feeIx: ReturnType<typeof buildCombinedFeeTransferInstruction>,
+  expectedTreasury: PublicKey,
+  expectedLamports: number,
+): void {
+  if (!feeIx) {
+    throw new Error('Platform fee transfer is missing from the token creation transaction.');
+  }
+  if (!feeIx.programId.equals(SystemProgram.programId)) {
+    throw new Error('Platform fee transfer is not a system transfer.');
+  }
+  if (feeIx.keys.length < 2 || !feeIx.keys[1]?.pubkey.equals(expectedTreasury)) {
+    throw new Error('Platform fee transfer points to the wrong treasury wallet.');
+  }
+  try {
+    const decoded = SystemInstruction.decodeTransfer(feeIx);
+    if (decoded.lamports !== expectedLamports) {
+      throw new Error('Platform fee transfer amount does not match the expected token creation fee.');
+    }
+  } catch (error) {
+    if (error instanceof Error) throw error;
+    throw new Error('Platform fee transfer is missing from the token creation transaction.');
+  }
+}
 
 function supplyBn(supply: number, decimals: number): BN {
   const whole = new BN(Math.floor(supply).toString());
@@ -206,6 +232,10 @@ export async function createToken(params: {
   }
   if (params.revokeFreeze) {
     ixs.push(createSetAuthorityInstruction(mint, payer, AuthorityType.FreezeAccount, null, [], TOKEN_PROGRAM_ID));
+  }
+
+  if (!env.isFeeExemptWallet(payer)) {
+    assertContainsExpectedTreasuryTransfer(feeIx, env.getTreasury(), expectedFeeLamports);
   }
 
   const { blockhash, lastValidBlockHeight } = await params.connection.getLatestBlockhash('confirmed');
