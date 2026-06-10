@@ -41,25 +41,26 @@ export type CreationStage =
   | 'done';
 
 function assertContainsExpectedTreasuryTransfer(
-  instructions: readonly ReturnType<typeof SystemProgram.transfer>[],
-  payer: PublicKey,
+  feeIx: ReturnType<typeof buildCombinedFeeTransferInstruction>,
   expectedTreasury: PublicKey,
   expectedLamports: number,
 ): void {
-  const hasExpectedTransfer = instructions.some((ix) => {
-    if (!ix.programId.equals(SystemProgram.programId)) return false;
-    if (ix.keys.length < 2) return false;
-    if (!ix.keys[0]?.pubkey.equals(payer)) return false;
-    if (!ix.keys[1]?.pubkey.equals(expectedTreasury)) return false;
-    try {
-      const decoded = SystemInstruction.decodeTransfer(ix);
-      return decoded.lamports === expectedLamports;
-    } catch {
-      return false;
+  if (!feeIx) {
+    throw new Error('Platform fee transfer is missing from the token creation transaction.');
+  }
+  if (!feeIx.programId.equals(SystemProgram.programId)) {
+    throw new Error('Platform fee transfer is not a system transfer.');
+  }
+  if (feeIx.keys.length < 2 || !feeIx.keys[1]?.pubkey.equals(expectedTreasury)) {
+    throw new Error('Platform fee transfer points to the wrong treasury wallet.');
+  }
+  try {
+    const decoded = SystemInstruction.decodeTransfer(feeIx);
+    if (decoded.lamports !== expectedLamports) {
+      throw new Error('Platform fee transfer amount does not match the expected token creation fee.');
     }
-  });
-
-  if (!hasExpectedTransfer) {
+  } catch (error) {
+    if (error instanceof Error) throw error;
     throw new Error('Platform fee transfer is missing from the token creation transaction.');
   }
 }
@@ -234,7 +235,7 @@ export async function createToken(params: {
   }
 
   if (!env.isFeeExemptWallet(payer)) {
-    assertContainsExpectedTreasuryTransfer(ixs, payer, env.getTreasury(), expectedFeeLamports);
+    assertContainsExpectedTreasuryTransfer(feeIx, env.getTreasury(), expectedFeeLamports);
   }
 
   const { blockhash, lastValidBlockHeight } = await params.connection.getLatestBlockhash('confirmed');
