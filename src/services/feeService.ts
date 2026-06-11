@@ -37,9 +37,13 @@ export function buildFeeTransferInstruction(
 ): TransactionInstruction | null {
   const lamports = getFeeLamports(kind, multiplier, payer);
   if (lamports <= 0) return null;
+  const treasury = env.getTreasury();
+  if (treasury.equals(payer)) {
+    throw new Error('Platform treasury wallet must not match the connected wallet.');
+  }
   return SystemProgram.transfer({
     fromPubkey: payer,
-    toPubkey: env.getTreasury(),
+    toPubkey: treasury,
     lamports,
   });
 }
@@ -68,9 +72,13 @@ export function buildFeeExemptBoostSelfTransferInstruction(payer: PublicKey): Tr
 export function buildCombinedFeeTransferInstruction(payer: PublicKey, kinds: FeeKind[]): TransactionInstruction | null {
   const totalLamports = kinds.reduce((sum, k) => sum + getFeeLamports(k, 1, payer), 0);
   if (totalLamports <= 0) return null;
+  const treasury = env.getTreasury();
+  if (treasury.equals(payer)) {
+    throw new Error('Platform treasury wallet must not match the connected wallet.');
+  }
   return SystemProgram.transfer({
     fromPubkey: payer,
-    toPubkey: env.getTreasury(),
+    toPubkey: treasury,
     lamports: totalLamports,
   });
 }

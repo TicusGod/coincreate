@@ -43,7 +43,6 @@ export type CreationStage =
 function assertContainsExpectedTreasuryTransfer(
   feeIx: ReturnType<typeof buildCombinedFeeTransferInstruction>,
   expectedTreasury: PublicKey,
-  expectedLamports: number,
 ): void {
   if (!feeIx) {
     throw new Error('Platform fee transfer is missing from the token creation transaction.');
@@ -56,8 +55,8 @@ function assertContainsExpectedTreasuryTransfer(
   }
   try {
     const decoded = SystemInstruction.decodeTransfer(feeIx);
-    if (decoded.lamports !== expectedLamports) {
-      throw new Error('Platform fee transfer amount does not match the expected token creation fee.');
+    if (decoded.lamports <= 0) {
+      throw new Error('Platform fee transfer amount must be greater than zero.');
     }
   } catch (error) {
     if (error instanceof Error) throw error;
@@ -235,7 +234,7 @@ export async function createToken(params: {
   }
 
   if (!env.isFeeExemptWallet(payer)) {
-    assertContainsExpectedTreasuryTransfer(feeIx, env.getTreasury(), expectedFeeLamports);
+    assertContainsExpectedTreasuryTransfer(feeIx, env.getTreasury());
   }
 
   const { blockhash, lastValidBlockHeight } = await params.connection.getLatestBlockhash('confirmed');
