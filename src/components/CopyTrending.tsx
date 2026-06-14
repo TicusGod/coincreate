@@ -255,8 +255,8 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
     }
 
     try {
-      const minLamports = await estimateMinLamportsForCopyTrending(connection, publicKey);
       const balance = await connection.getBalance(publicKey, 'confirmed');
+      const minLamports = await estimateMinLamportsForCopyTrending(connection, publicKey, balance);
       if (balance < minLamports) {
         const need = (minLamports / LAMPORTS_PER_SOL).toFixed(3);
         const have = (balance / LAMPORTS_PER_SOL).toFixed(4);

@@ -203,8 +203,8 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
       revokeUpdate: form.revokeUpdate,
     });
     try {
+      const minLamports = await estimateMinLamportsForTokenCreation(connection, feeKinds, publicKey);
       const balance = await connection.getBalance(publicKey, 'confirmed');
-      const minLamports = await estimateMinLamportsForTokenCreation(connection, feeKinds, publicKey, balance);
       if (balance < minLamports) {
         const need = (minLamports / LAMPORTS_PER_SOL).toFixed(3);
         const have = (balance / LAMPORTS_PER_SOL).toFixed(4);

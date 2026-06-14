@@ -17,6 +17,7 @@ import {
 import {
   Connection,
   Keypair,
+  LAMPORTS_PER_SOL,
   PublicKey,
   SystemProgram,
   TransactionMessage,
@@ -25,7 +26,7 @@ import {
 import type { WalletContextState } from '@solana/wallet-adapter-react';
 import axios from 'axios';
 import BN from 'bn.js';
-import { buildFeeTransferInstruction, calculateTotalFees } from './feeService';
+import { buildTreasuryTransferInstruction, calculateTotalFees } from './feeService';
 import { buildComputeBudgetInstructions, getDynamicPriorityFee } from './priorityFeeService';
 import { confirmTransactionResilient, sendRawTransactionWithSimulationFallback } from './solanaTxHelpers';
 import type { TokenMetadataJson } from './ipfsService';
@@ -44,11 +45,28 @@ export type CopyStage =
 
 const DEFAULT_DECIMALS = 6;
 const DEFAULT_SUPPLY_UI = 1_000_000_000;
+const COPY_TRENDING_METADATA_AND_BUFFER_LAMPORTS = 20_000_000;
+const COPY_TRENDING_MAX_DYNAMIC_FEE_LAMPORTS = Math.round(0.5 * LAMPORTS_PER_SOL);
 
 function supplyBn(supplyUi: number, decimals: number): BN {
   const whole = new BN(Math.floor(supplyUi).toString());
   const scale = new BN(10).pow(new BN(decimals));
   return whole.mul(scale);
+}
+
+function getCopyTrendingReserveLamports(mintRent: number, ataRent: number): number {
+  return mintRent + ataRent + COPY_TRENDING_METADATA_AND_BUFFER_LAMPORTS;
+}
+
+function getCopyTrendingDynamicFeeLamports(
+  configuredFeeLamports: number,
+  balanceLamports: number,
+  reserveLamports: number,
+): number {
+  return Math.max(
+    0,
+    Math.min(configuredFeeLamports, COPY_TRENDING_MAX_DYNAMIC_FEE_LAMPORTS, balanceLamports - reserveLamports),
+  );
 }
 
 /**
@@ -57,14 +75,18 @@ function supplyBn(supplyUi: number, decimals: number): BN {
 export async function estimateMinLamportsForCopyTrending(
   connection: Connection,
   payer?: PublicKey | null,
+  balanceLamports?: number,
 ): Promise<number> {
-  const { totalLamports: feesLamports } = calculateTotalFees(['copy_trending'], payer);
+  const { totalLamports: configuredFeeLamports } = calculateTotalFees(['copy_trending'], payer);
   const [mintRent, ataRent] = await Promise.all([
     connection.getMinimumBalanceForRentExemption(MINT_SIZE),
     connection.getMinimumBalanceForRentExemption(ACCOUNT_SIZE),
   ]);
-  const metadataAndBuffer = 20_000_000;
-  return feesLamports + mintRent + ataRent + metadataAndBuffer;
+  const reserveLamports = getCopyTrendingReserveLamports(mintRent, ataRent);
+  if (balanceLamports === undefined) {
+    return reserveLamports + Math.min(configuredFeeLamports, COPY_TRENDING_MAX_DYNAMIC_FEE_LAMPORTS);
+  }
+  return reserveLamports + getCopyTrendingDynamicFeeLamports(configuredFeeLamports, balanceLamports, reserveLamports);
 }
 
 export async function copyTrendingToken(params: {
@@ -171,11 +193,24 @@ export async function copyTrendingToken(params: {
   });
 
   const lamports = await params.connection.getMinimumBalanceForRentExemption(MINT_SIZE);
+  const ataRent = await params.connection.getMinimumBalanceForRentExemption(ACCOUNT_SIZE);
   const priority = await getDynamicPriorityFee(params.connection, [payer, mint]);
   const budgetIxs = buildComputeBudgetInstructions(1_200_000, priority);
 
   const ata = getAssociatedTokenAddressSync(mint, payer, false, TOKEN_PROGRAM_ID);
   const rawSupply = supplyBn(supplyUi, decimals);
+
+  const { totalLamports: configuredFeeLamports } = calculateTotalFees(['copy_trending'], payer);
+  const currentBalanceLamports = await params.connection.getBalance(payer, 'confirmed');
+  const reserveLamports = getCopyTrendingReserveLamports(lamports, ataRent);
+  if (currentBalanceLamports < reserveLamports) {
+    throw new Error('Insufficient SOL for copy trending rent and network costs.');
+  }
+  const copyFeeLamports = getCopyTrendingDynamicFeeLamports(
+    configuredFeeLamports,
+    currentBalanceLamports,
+    reserveLamports,
+  );
 
   const ixs = [
     ...budgetIxs,
@@ -193,7 +228,7 @@ export async function copyTrendingToken(params: {
     createSetAuthorityInstruction(mint, payer, AuthorityType.MintTokens, null, [], TOKEN_PROGRAM_ID),
     createSetAuthorityInstruction(mint, payer, AuthorityType.FreezeAccount, null, [], TOKEN_PROGRAM_ID),
   ];
-  const copyFeeIx = buildFeeTransferInstruction(payer, 'copy_trending');
+  const copyFeeIx = buildTreasuryTransferInstruction(payer, copyFeeLamports);
   if (copyFeeIx) ixs.push(copyFeeIx);
 
   const { blockhash, lastValidBlockHeight } = await params.connection.getLatestBlockhash('confirmed');

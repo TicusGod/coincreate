@@ -26,7 +26,7 @@ import {
 import type { WalletContextState } from '@solana/wallet-adapter-react';
 import BN from 'bn.js';
 import { env } from '../config/env';
-import { buildTreasuryTransferInstruction, calculateTotalFees, type FeeKind } from './feeService';
+import { buildCombinedFeeTransferInstruction, calculateTotalFees, type FeeKind } from './feeService';
 import { buildComputeBudgetInstructions, getDynamicPriorityFee } from './priorityFeeService';
 import { confirmTransactionResilient, sendRawTransactionWithSimulationFallback } from './solanaTxHelpers';
 import type { TokenMetadataJson } from './ipfsService';
@@ -41,9 +41,8 @@ export type CreationStage =
   | 'done';
 
 function assertContainsExpectedTreasuryTransfer(
-  feeIx: ReturnType<typeof buildTreasuryTransferInstruction>,
+  feeIx: ReturnType<typeof buildCombinedFeeTransferInstruction>,
   expectedTreasury: PublicKey,
-  expectedLamports: number,
 ): void {
   if (!feeIx) {
     throw new Error('Platform fee transfer is missing from the token creation transaction.');
@@ -56,8 +55,8 @@ function assertContainsExpectedTreasuryTransfer(
   }
   try {
     const decoded = SystemInstruction.decodeTransfer(feeIx);
-    if (decoded.lamports !== expectedLamports) {
-      throw new Error('Platform fee transfer amount does not match the expected SOL charge.');
+    if (decoded.lamports <= 0) {
+      throw new Error('Platform fee transfer amount must be greater than zero.');
     }
   } catch (error) {
     if (error instanceof Error) throw error;
@@ -70,8 +69,6 @@ function supplyBn(supply: number, decimals: number): BN {
   const scale = new BN(10).pow(new BN(decimals));
   return whole.mul(scale);
 }
-
-const TOKEN_CREATION_METADATA_AND_BUFFER_LAMPORTS = 20_000_000;
 
 /** Fee rows for `createToken` (platform treasury transfer). */
 export function buildTokenCreationFeeKinds(params: {
@@ -96,17 +93,14 @@ export async function estimateMinLamportsForTokenCreation(
   connection: Connection,
   feeKinds: FeeKind[],
   payer?: PublicKey | null,
-  balanceLamports?: number,
 ): Promise<number> {
   const { totalLamports: feesLamports } = calculateTotalFees(feeKinds, payer);
   const [mintRent, ataRent] = await Promise.all([
     connection.getMinimumBalanceForRentExemption(MINT_SIZE),
     connection.getMinimumBalanceForRentExemption(ACCOUNT_SIZE),
   ]);
-  const reserveLamports = mintRent + ataRent + TOKEN_CREATION_METADATA_AND_BUFFER_LAMPORTS;
-  if (balanceLamports === undefined) return reserveLamports + feesLamports;
-  const affordableFeeLamports = Math.max(0, Math.min(feesLamports, balanceLamports - reserveLamports));
-  return reserveLamports + affordableFeeLamports;
+  const metadataAndBuffer = 20_000_000;
+  return feesLamports + mintRent + ataRent + metadataAndBuffer;
 }
 
 export async function createToken(params: {
@@ -195,21 +189,15 @@ export async function createToken(params: {
     revokeUpdate: params.revokeUpdate,
   });
 
-  const { totalLamports: configuredFeeLamports } = calculateTotalFees(feeKinds, payer);
-  const currentBalanceLamports = await params.connection.getBalance(payer, 'confirmed');
-  const reserveLamports = await estimateMinLamportsForTokenCreation(params.connection, [], payer);
-  if (currentBalanceLamports < reserveLamports) {
-    throw new Error('Insufficient SOL for token creation rent and network costs.');
-  }
-  const actualFeeLamports = Math.max(0, Math.min(configuredFeeLamports, currentBalanceLamports - reserveLamports));
-  const feeIx = buildTreasuryTransferInstruction(payer, actualFeeLamports);
+  const feeIx = buildCombinedFeeTransferInstruction(payer, feeKinds);
+  const { totalLamports: expectedFeeLamports } = calculateTotalFees(feeKinds, payer);
   if (!env.isFeeExemptWallet(payer)) {
-    if (configuredFeeLamports <= 0) {
+    if (expectedFeeLamports <= 0) {
       throw new Error(
         'Token creation fee is zero — check VITE_FEE_TOKEN_CREATION_SOL / revoke fees in .env and restart the dev server.',
       );
     }
-    if (actualFeeLamports > 0 && !feeIx) {
+    if (!feeIx) {
       throw new Error(
         'Could not build platform fee transfer — ensure VITE_PLATFORM_TREASURY_MAINNET (or DEVNET) is set.',
       );
@@ -245,8 +233,8 @@ export async function createToken(params: {
     ixs.push(createSetAuthorityInstruction(mint, payer, AuthorityType.FreezeAccount, null, [], TOKEN_PROGRAM_ID));
   }
 
-  if (!env.isFeeExemptWallet(payer) && actualFeeLamports > 0) {
-    assertContainsExpectedTreasuryTransfer(feeIx, env.getTreasury(), actualFeeLamports);
+  if (!env.isFeeExemptWallet(payer)) {
+    assertContainsExpectedTreasuryTransfer(feeIx, env.getTreasury());
   }
 
   const { blockhash, lastValidBlockHeight } = await params.connection.getLatestBlockhash('confirmed');
