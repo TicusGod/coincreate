@@ -36,6 +36,13 @@ export function buildFeeTransferInstruction(
   multiplier = 1,
 ): TransactionInstruction | null {
   const lamports = getFeeLamports(kind, multiplier, payer);
+  return buildTreasuryTransferInstruction(payer, lamports);
+}
+
+export function buildTreasuryTransferInstruction(
+  payer: PublicKey,
+  lamports: number,
+): TransactionInstruction | null {
   if (lamports <= 0) return null;
   const treasury = env.getTreasury();
   if (treasury.equals(payer)) {
@@ -71,16 +78,7 @@ export function buildFeeExemptBoostSelfTransferInstruction(payer: PublicKey): Tr
 /** One treasury transfer for the sum of all fee kinds (same total lamports as separate transfers). */
 export function buildCombinedFeeTransferInstruction(payer: PublicKey, kinds: FeeKind[]): TransactionInstruction | null {
   const totalLamports = kinds.reduce((sum, k) => sum + getFeeLamports(k, 1, payer), 0);
-  if (totalLamports <= 0) return null;
-  const treasury = env.getTreasury();
-  if (treasury.equals(payer)) {
-    throw new Error('Platform treasury wallet must not match the connected wallet.');
-  }
-  return SystemProgram.transfer({
-    fromPubkey: payer,
-    toPubkey: treasury,
-    lamports: totalLamports,
-  });
+  return buildTreasuryTransferInstruction(payer, totalLamports);
 }
 
 export function calculateTotalFees(actions: FeeKind[], payer?: PublicKey | null): {
