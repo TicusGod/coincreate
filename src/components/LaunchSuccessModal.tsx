@@ -7,12 +7,14 @@ interface LaunchSuccessModalProps {
   onClose: () => void;
   /** Opens this app’s Liquidity page with this mint pre-selected. */
   onGoToLiquidity: (mint: string) => void;
+  isVirtual?: boolean;
 }
 
 export default function LaunchSuccessModal({
   mintAddress,
   onClose,
   onGoToLiquidity,
+  isVirtual = false,
 }: LaunchSuccessModalProps) {
   const [copied, setCopied] = useState(false);
 
@@ -45,10 +47,20 @@ export default function LaunchSuccessModal({
         </button>
 
         {/* Title */}
-        <h2 className="text-[#86efac] font-bold text-lg mb-5">Token Created Successfully!</h2>
+        <h2 className="text-[#86efac] font-bold text-lg mb-5">
+          {isVirtual ? 'Preview Token Created' : 'Token Created Successfully!'}
+        </h2>
+
+        {isVirtual && (
+          <p className="text-[#b0b4ba] text-sm mb-5">
+            Whitelisted wallets create local preview tokens only. No on-chain mint or explorer entry was created.
+          </p>
+        )}
 
         {/* Token Address */}
-        <p className="text-[#fafafa] font-semibold text-sm mb-2">Token Address</p>
+        <p className="text-[#fafafa] font-semibold text-sm mb-2">
+          {isVirtual ? 'Preview Token Address' : 'Token Address'}
+        </p>
         <div className="flex items-center gap-2 bg-[#111113] border border-[#212225] rounded-[12px] px-3 py-2.5 mb-5">
           <p className="text-[#e4e4e7] font-mono text-sm flex-1 truncate">{mintAddress}</p>
           <button
@@ -61,32 +73,44 @@ export default function LaunchSuccessModal({
 
         {/* Buttons */}
         <div className="flex flex-col gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              onGoToLiquidity(mintAddress);
-              onClose();
-            }}
-            className="w-full h-11 rounded-[12px] bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-sm font-semibold flex items-center justify-center transition-all duration-150 active:translate-y-px"
-          >
-            Create Liquidity Pool
-          </button>
-          <a
-            href={explorerUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full h-11 rounded-[12px] bg-[#212225] hover:bg-[#272a2d] text-[#e4e4e7] text-sm font-semibold flex items-center justify-center transition-all duration-150 active:translate-y-px"
-          >
-            View on Explorer
-          </a>
-          <a
-            href={solscanUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full h-11 rounded-[12px] bg-[#212225] hover:bg-[#272a2d] text-[#e4e4e7] text-sm font-semibold flex items-center justify-center transition-all duration-150 active:translate-y-px"
-          >
-            View on Solscan
-          </a>
+          {!isVirtual ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  onGoToLiquidity(mintAddress);
+                  onClose();
+                }}
+                className="w-full h-11 rounded-[12px] bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-sm font-semibold flex items-center justify-center transition-all duration-150 active:translate-y-px"
+              >
+                Create Liquidity Pool
+              </button>
+              <a
+                href={explorerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full h-11 rounded-[12px] bg-[#212225] hover:bg-[#272a2d] text-[#e4e4e7] text-sm font-semibold flex items-center justify-center transition-all duration-150 active:translate-y-px"
+              >
+                View on Explorer
+              </a>
+              <a
+                href={solscanUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full h-11 rounded-[12px] bg-[#212225] hover:bg-[#272a2d] text-[#e4e4e7] text-sm font-semibold flex items-center justify-center transition-all duration-150 active:translate-y-px"
+              >
+                View on Solscan
+              </a>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full h-11 rounded-[12px] bg-[#212225] hover:bg-[#272a2d] text-[#e4e4e7] text-sm font-semibold flex items-center justify-center transition-all duration-150 active:translate-y-px"
+            >
+              Close
+            </button>
+          )}
         </div>
 
       </div>

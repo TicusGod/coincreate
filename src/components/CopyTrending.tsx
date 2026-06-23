@@ -18,8 +18,9 @@ interface TrendingToken {
   symbol: string;
   imageUrl: string;
   marketCap: number;
-  lastBuy: string;
-  pumpUrl: string | null;
+  activityLabel: string;
+  activityText: string;
+  dexUrl: string | null;
   xUrl: string | null;
   telegramUrl: string | null;
 }
@@ -74,15 +75,11 @@ function SocialLink({ href, children }: { href: string; children: React.ReactNod
   );
 }
 
-function PumpFunLogo() {
+function DexScreenerBadge() {
   return (
-    <img
-      src="/pumpfun.png"
-      alt="pump.fun"
-      width={17.5}
-      height={17.5}
-      className="w-[17.5px] h-[17.5px] object-contain shrink-0"
-    />
+    <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[6px] bg-[#2563eb] px-1 text-[9px] font-bold uppercase tracking-[0.08em] text-white">
+      DS
+    </span>
   );
 }
 
@@ -139,14 +136,14 @@ function TokenCard({
         <span className="w-3 h-3 rounded-full border border-[#fb923c] flex items-center justify-center text-[7px] font-bold leading-none">
           !
         </span>
-        <span>Last trade: {token.lastBuy}</span>
+        <span>{token.activityLabel}: {token.activityText}</span>
       </div>
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          {token.pumpUrl && (
-            <SocialLink href={token.pumpUrl}>
-              <PumpFunLogo />
+          {token.dexUrl && (
+            <SocialLink href={token.dexUrl}>
+              <DexScreenerBadge />
             </SocialLink>
           )}
           {token.xUrl && (
@@ -225,8 +222,9 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
           symbol: c.symbol.startsWith('$') ? c.symbol : `$${c.symbol}`,
           imageUrl: c.imageUri || PLACEHOLDER_IMG,
           marketCap: c.marketCap,
-          lastBuy: formatCreatedAgo(c.lastTradeAt || c.createdAt),
-          pumpUrl: `https://pump.fun/coin/${c.mint}`,
+          activityLabel: c.updatedAt ? 'Updated' : 'Pair age',
+          activityText: formatCreatedAgo(c.updatedAt || c.createdAt),
+          dexUrl: c.dexUrl,
           xUrl: normalizeSocialUrl(c.twitter, 'twitter'),
           telegramUrl: normalizeSocialUrl(c.telegram, 'telegram'),
         })),
@@ -317,7 +315,7 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
       <section className="min-h-screen bg-[#111113] px-4 sm:px-8 pt-12 pb-20">
         <div className="max-w-6xl mx-auto">
           <h1 className="text-3xl font-bold text-[#fafafa] text-center mb-8 tracking-tight">
-            Copy Trending Coins in 1 Click
+            Copy Dexscreener Coins in 1 Click
           </h1>
 
           <div className="flex items-center justify-end mb-6">

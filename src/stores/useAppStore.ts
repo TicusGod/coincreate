@@ -15,6 +15,7 @@ export type CreatedToken = {
   network: SolanaNetwork;
   source: 'created' | 'copied';
   sourceMint?: string;
+  isVirtual?: boolean;
   authoritiesRevoked: { mint: boolean; freeze: boolean; update: boolean };
 };
 
