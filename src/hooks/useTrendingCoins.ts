@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getDexScreenerCoins, type DexScreenerCoin } from '../services/dexScreenerService';
 import { useVisibilityAwareInterval } from './useVisibilityAwareInterval';
 
-export function useTrendingCoins(tab: 'trending' | 'new') {
+export function useTrendingCoins(tab: 'trending' | 'new', page = 0) {
   const [coins, setCoins] = useState<DexScreenerCoin[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -12,7 +12,7 @@ export function useTrendingCoins(tab: 'trending' | 'new') {
     setLoading(true);
     setError(null);
     try {
-      const list = await getDexScreenerCoins({ tab, limit: 24, force });
+      const list = await getDexScreenerCoins({ tab, limit: 24, offset: page * 24, force });
       setCoins(list);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
@@ -20,7 +20,7 @@ export function useTrendingCoins(tab: 'trending' | 'new') {
     } finally {
       setLoading(false);
     }
-  }, [tab]);
+  }, [page, tab]);
 
   useEffect(() => {
     void load();
