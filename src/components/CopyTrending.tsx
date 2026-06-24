@@ -77,9 +77,11 @@ function SocialLink({ href, children }: { href: string; children: React.ReactNod
 
 function DexScreenerBadge() {
   return (
-    <span className="inline-flex h-[18px] w-[18px] items-center justify-center overflow-hidden rounded-full bg-[#2563eb] ring-1 ring-white/10">
-      <img src="/dexscreener.png" alt="Dexscreener" className="h-full w-full object-cover" />
-    </span>
+    <img
+      src="/dexscreener.png"
+      alt="Dexscreener"
+      className="h-4 w-4 object-contain opacity-70"
+    />
   );
 }
 
@@ -284,6 +286,7 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
           symbol: token.symbol.replace(/^\$/, '').toUpperCase(),
           decimals: 6,
           supply: '1000000000',
+          walletBalance: '1000000000',
           metadataUri: res.metadataUri,
           imageUri: token.imageUrl,
           createdAt: Date.now(),

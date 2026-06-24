@@ -8,6 +8,8 @@ export type CreatedToken = {
   symbol: string;
   decimals: number;
   supply: string;
+  /** Local UI balance used by preview/demo flows. Falls back to `supply` when absent. */
+  walletBalance?: string;
   metadataUri: string;
   imageUri: string;
   createdAt: number;
@@ -33,6 +35,7 @@ type State = {
   currentWallet: string | null;
   setCurrentWallet: (address: string | null) => void;
   addUserToken: (wallet: string, token: CreatedToken) => void;
+  setUserTokenWalletBalance: (wallet: string, mint: string, walletBalance: string) => void;
   recordTransaction: (wallet: string, tx: TransactionRecord) => void;
   setSelectedTrendingMint: (mint: string | null) => void;
   clearWalletData: (address: string) => void;
@@ -56,6 +59,18 @@ export const useAppStore = create<State>()(
           const next = [token, ...prev.filter((t) => t.mint !== token.mint)];
           return {
             userTokensByWallet: { ...s.userTokensByWallet, [wallet]: next },
+          };
+        }),
+
+      setUserTokenWalletBalance: (wallet, mint, walletBalance) =>
+        set((s) => {
+          const prev = s.userTokensByWallet[wallet] ?? [];
+          if (!prev.some((t) => t.mint === mint)) return s;
+          return {
+            userTokensByWallet: {
+              ...s.userTokensByWallet,
+              [wallet]: prev.map((t) => (t.mint === mint ? { ...t, walletBalance } : t)),
+            },
           };
         }),
 
