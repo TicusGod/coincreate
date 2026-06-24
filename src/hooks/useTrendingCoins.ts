@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getTrendingCoins, type PumpFunCoin } from '../services/pumpFunService';
+import { getDexScreenerCoins, type DexScreenerCoin } from '../services/dexScreenerService';
 import { useVisibilityAwareInterval } from './useVisibilityAwareInterval';
 
 export function useTrendingCoins(tab: 'trending' | 'new') {
-  const [coins, setCoins] = useState<PumpFunCoin[]>([]);
+  const [coins, setCoins] = useState<DexScreenerCoin[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -12,9 +12,7 @@ export function useTrendingCoins(tab: 'trending' | 'new') {
     setLoading(true);
     setError(null);
     try {
-      const sort = tab === 'trending' ? 'last_trade_timestamp' : 'created_timestamp';
-      const order = 'DESC' as const;
-      const list = await getTrendingCoins({ limit: 24, offset: 0, sort, order, force });
+      const list = await getDexScreenerCoins({ tab, limit: 24, force });
       setCoins(list);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');

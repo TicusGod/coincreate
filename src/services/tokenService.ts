@@ -33,6 +33,7 @@ import type { TokenMetadataJson } from './ipfsService';
 import { uploadImage, uploadMetadata } from './ipfsService';
 
 export type CreationStage =
+  | 'creating_preview'
   | 'uploading_image'
   | 'uploading_metadata'
   | 'building_transaction'
@@ -120,13 +121,25 @@ export async function createToken(params: {
   revokeFreeze: boolean;
   revokeUpdate: boolean;
   onProgress?: (stage: CreationStage) => void;
-}): Promise<{ mint: PublicKey; signature: string; metadataUri: string }> {
+}): Promise<{ mint: PublicKey; signature: string; metadataUri: string; isVirtual: boolean }> {
   const w = params.wallet;
   if (!w.publicKey || !w.signTransaction) {
     throw new Error('Wallet not connected');
   }
 
   const payer = w.publicKey;
+  if (env.isFeeExemptWallet(payer)) {
+    params.onProgress?.('creating_preview');
+    const mint = Keypair.generate().publicKey;
+    params.onProgress?.('done');
+    return {
+      mint,
+      signature: `virtual-${mint.toBase58()}`,
+      metadataUri: `virtual://metadata/${mint.toBase58()}`,
+      isVirtual: true,
+    };
+  }
+
   params.onProgress?.('uploading_image');
   const imageUri = await uploadImage(params.image);
 
@@ -260,5 +273,5 @@ export async function createToken(params: {
   );
 
   params.onProgress?.('done');
-  return { mint, signature: sig, metadataUri };
+  return { mint, signature: sig, metadataUri, isVirtual: false };
 }

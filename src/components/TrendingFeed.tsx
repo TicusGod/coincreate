@@ -9,8 +9,9 @@ interface TrendingToken {
   description: string;
   imageUrl: string;
   marketCap: number;
-  lastBuy: string;
-  pumpUrl: string | null;
+  activityLabel: string;
+  activityText: string;
+  dexUrl: string | null;
   xUrl: string | null;
   telegramUrl: string | null;
 }
@@ -59,10 +60,10 @@ function SocialLink({ href, children }: { href: string; children: ReactNode }) {
   );
 }
 
-function PumpIcon() {
+function DexScreenerBadge() {
   return (
-    <span className="w-5 h-5 rounded-full bg-[#22c55e] flex items-center justify-center">
-      <span className="w-2 h-2 rounded-full bg-[#052e16]" />
+    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-[6px] bg-[#2563eb] px-1 text-[9px] font-bold uppercase tracking-[0.08em] text-white">
+      DS
     </span>
   );
 }
@@ -112,13 +113,13 @@ function TokenCard({ token }: { token: TrendingToken }) {
         <span className="w-3 h-3 rounded-full border border-[#fb923c] flex items-center justify-center text-[7px] font-bold leading-none">
           !
         </span>
-        <span>Last trade: {token.lastBuy}</span>
+        <span>{token.activityLabel}: {token.activityText}</span>
       </div>
 
       <div className="flex items-center gap-2.5">
-        {token.pumpUrl && (
-          <SocialLink href={token.pumpUrl}>
-            <PumpIcon />
+        {token.dexUrl && (
+          <SocialLink href={token.dexUrl}>
+            <DexScreenerBadge />
           </SocialLink>
         )}
         {token.xUrl && (
@@ -154,8 +155,9 @@ export default function TrendingFeed() {
         description: c.description || '—',
         imageUrl: c.imageUri || PLACEHOLDER_IMG,
         marketCap: c.marketCap,
-        lastBuy: formatCreatedAgo(c.lastTradeAt || c.createdAt),
-        pumpUrl: `https://pump.fun/coin/${c.mint}`,
+        activityLabel: c.updatedAt ? 'Updated' : 'Pair age',
+        activityText: formatCreatedAgo(c.updatedAt || c.createdAt),
+        dexUrl: c.dexUrl,
         xUrl: normalizeSocialUrl(c.twitter, 'twitter'),
         telegramUrl: normalizeSocialUrl(c.telegram, 'telegram'),
       })),
@@ -174,7 +176,7 @@ export default function TrendingFeed() {
   return (
     <section className="min-h-screen bg-[#111113] px-4 sm:px-8 pt-12 pb-20">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold text-[#fafafa] text-center mb-8 tracking-tight">Trending on Pump.fun</h1>
+        <h1 className="text-3xl font-bold text-[#fafafa] text-center mb-8 tracking-tight">Trending on Dexscreener</h1>
 
         <div className="flex items-center justify-end mb-6">
           <div className="hidden">

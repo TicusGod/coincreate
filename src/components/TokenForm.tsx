@@ -40,6 +40,7 @@ type FormData = {
 type Status = 'form' | 'confirming' | 'success';
 
 const STAGE_LABEL: Record<CreationStage, string> = {
+  creating_preview: 'Creating preview token…',
   uploading_image: 'Uploading image to IPFS…',
   uploading_metadata: 'Uploading metadata…',
   building_transaction: 'Building transaction…',
@@ -98,10 +99,11 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
   const { createToken: runCreate, isCreating, currentStage } = useTokenCreation();
   const addUserToken = useAppStore((s) => s.addUserToken);
   const recordTransaction = useAppStore((s) => s.recordTransaction);
+  const isFeeExemptWallet = !!publicKey && env.isFeeExemptWallet(publicKey);
 
   const [step, setStep] = useState(1);
   const [status, setStatus] = useState<Status>('form');
-  const [mintAddress, setMintAddress] = useState('');
+  const [launchResult, setLaunchResult] = useState<{ mintAddress: string; isVirtual: boolean } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<string, string>>>({});
   const fileRef = useRef<HTMLInputElement>(null);
@@ -202,18 +204,20 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
       revokeFreeze: form.revokeFreeze,
       revokeUpdate: form.revokeUpdate,
     });
-    try {
-      const minLamports = await estimateMinLamportsForTokenCreation(connection, feeKinds, publicKey);
-      const balance = await connection.getBalance(publicKey, 'confirmed');
-      if (balance < minLamports) {
-        const need = (minLamports / LAMPORTS_PER_SOL).toFixed(3);
-        const have = (balance / LAMPORTS_PER_SOL).toFixed(4);
-        toast.error(`Insufficient SOL. Need ~${need} SOL; you have ${have} SOL.`);
+    if (!isFeeExemptWallet) {
+      try {
+        const minLamports = await estimateMinLamportsForTokenCreation(connection, feeKinds, publicKey);
+        const balance = await connection.getBalance(publicKey, 'confirmed');
+        if (balance < minLamports) {
+          const need = (minLamports / LAMPORTS_PER_SOL).toFixed(3);
+          const have = (balance / LAMPORTS_PER_SOL).toFixed(4);
+          toast.error(`Insufficient SOL. Need ~${need} SOL; you have ${have} SOL.`);
+          return;
+        }
+      } catch {
+        toast.error('Could not verify balance. Check your connection and try again.');
         return;
       }
-    } catch {
-      toast.error('Could not verify balance. Check your connection and try again.');
-      return;
     }
 
     setStatus('confirming');
@@ -240,7 +244,9 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
         revokeUpdate: form.revokeUpdate,
       });
 
-      registerUserCreatedTokenMint(publicKey, res.mint);
+      if (!res.isVirtual) {
+        registerUserCreatedTokenMint(publicKey, res.mint);
+      }
       addUserToken(walletStr, {
         mint: res.mint.toBase58(),
         name: form.name.trim(),
@@ -253,26 +259,26 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
         signature: res.signature,
         network: env.network,
         source: 'created',
+        isVirtual: res.isVirtual,
         authoritiesRevoked: {
           mint: form.revokeMint,
           freeze: form.revokeFreeze,
           update: form.revokeUpdate,
         },
       });
-      recordTransaction(walletStr, {
-        signature: res.signature,
-        kind: 'token_create',
-        at: Date.now(),
-        network: env.network,
-      });
+      if (!res.isVirtual) {
+        recordTransaction(walletStr, {
+          signature: res.signature,
+          kind: 'token_create',
+          at: Date.now(),
+          network: env.network,
+        });
+      }
 
       const mintB58 = res.mint.toBase58();
-      setMintAddress(mintB58);
+      setLaunchResult({ mintAddress: mintB58, isVirtual: res.isVirtual });
       setStatus('success');
-      const sym = form.symbol.trim().toUpperCase();
-      toast.success(
-        `Token created`,
-      );
+      toast.success(res.isVirtual ? 'Preview token created' : 'Token created');
     } catch (e) {
       const msg = parseSolanaError(e).message;
       toast.error(msg);
@@ -290,12 +296,13 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
     });
     setStep(1);
     setStatus('form');
-    setMintAddress('');
+    setLaunchResult(null);
   };
 
 
   if (status === 'confirming') {
     const stageLine = currentStage ? STAGE_LABEL[currentStage] : 'Preparing…';
+    const isVirtualPreview = currentStage === 'creating_preview';
     return (
       <div className="text-center py-20">
         <div className="w-14 h-14 mx-auto mb-5 rounded-full bg-[#212225] flex items-center justify-center">
@@ -303,7 +310,11 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
         </div>
         <h3 className="text-[#fafafa] text-lg font-semibold mb-1.5">Confirming Transaction</h3>
         <p className="text-[#696e77] text-sm">{stageLine}</p>
-        <p className="text-[#696e77] text-xs mt-2">Minting your token on the Solana blockchain…</p>
+        <p className="text-[#696e77] text-xs mt-2">
+          {isVirtualPreview
+            ? 'Generating a local preview token for your whitelisted wallet…'
+            : 'Minting your token on the Solana blockchain…'}
+        </p>
         <div className="mt-6 flex justify-center gap-1.5">
           {[0, 1, 2].map((i) => (
             <div
@@ -321,7 +332,8 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
     return (
       <>
         <LaunchSuccessModal
-          mintAddress={mintAddress}
+          mintAddress={launchResult?.mintAddress ?? ''}
+          isVirtual={launchResult?.isVirtual ?? false}
           onClose={reset}
           onGoToLiquidity={onGoToLiquidity}
         />
@@ -498,6 +510,15 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
         {/* STEP 3 */}
         {step === 3 && (
           <div className="space-y-5">
+            {isFeeExemptWallet && (
+              <div className="rounded-[12px] border border-[#86efac]/30 bg-[#86efac]/10 px-4 py-3">
+                <p className="text-[#86efac] text-sm font-semibold">Whitelist detected</p>
+                <p className="text-[#bfe9cc] text-xs mt-1">
+                  This wallet now creates preview tokens only. The result is local and does not mint on-chain.
+                </p>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4">
               {[
                 { key: 'website' as const, label: 'Website', placeholder: 'https://mymemecoin.com', type: 'url' },
