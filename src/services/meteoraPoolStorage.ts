@@ -13,6 +13,9 @@ export type FeeExemptPoolDisplay = {
 export type StoredMeteoraPool = {
   poolAddress: string;
   baseTokenMint: string;
+  baseTokenSymbol?: string;
+  baseTokenName?: string;
+  baseTokenImageUrl?: string | null;
   /** Position NFT mint (DAMM v2 uses NFT positions; serves as the pool's LP handle). */
   lpMint: string;
   /** Position PDA from Meteora SDK (for future manage/remove). */
@@ -51,6 +54,10 @@ export function loadMeteoraPoolsFromStorage(walletAddress: string | null | undef
       const r = row as Record<string, unknown>;
       const poolAddress = typeof r.poolAddress === 'string' ? r.poolAddress.trim() : '';
       const baseTokenMint = typeof r.baseTokenMint === 'string' ? r.baseTokenMint.trim() : '';
+      const baseTokenSymbol = typeof r.baseTokenSymbol === 'string' ? r.baseTokenSymbol.trim() : undefined;
+      const baseTokenName = typeof r.baseTokenName === 'string' ? r.baseTokenName.trim() : undefined;
+      const baseTokenImageUrl =
+        typeof r.baseTokenImageUrl === 'string' ? r.baseTokenImageUrl : r.baseTokenImageUrl === null ? null : undefined;
       const lpMint = typeof r.lpMint === 'string' ? r.lpMint.trim() : '';
       const position = typeof r.position === 'string' ? r.position.trim() : '';
       const createdAt = typeof r.createdAt === 'string' ? r.createdAt : '';
@@ -66,6 +73,9 @@ export function loadMeteoraPoolsFromStorage(walletAddress: string | null | undef
       out.push({
         poolAddress,
         baseTokenMint,
+        baseTokenSymbol,
+        baseTokenName,
+        baseTokenImageUrl,
         lpMint,
         position: position || '',
         createdAt,
@@ -163,7 +173,7 @@ export function storedMeteoraPoolToUserPoolPosition(row: StoredMeteoraPool): Use
     poolId: row.poolAddress,
     baseMint: row.baseTokenMint,
     quoteMint: wsol,
-    baseSymbol: row.baseTokenMint.slice(0, 4),
+    baseSymbol: row.baseTokenSymbol || row.baseTokenMint.slice(0, 4),
     quoteSymbol: 'SOL',
     lpMint: row.lpMint,
     lpAmount: '0',

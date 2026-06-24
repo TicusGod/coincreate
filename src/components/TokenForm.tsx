@@ -252,6 +252,7 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
         symbol: form.symbol.trim(),
         decimals: Number(form.decimals),
         supply: form.supply,
+        walletBalance: form.supply,
         metadataUri: res.metadataUri,
         imageUri: form.imagePreview || '',
         createdAt: Date.now(),

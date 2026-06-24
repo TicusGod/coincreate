@@ -32,13 +32,24 @@ import {
 } from '../services/meteoraPool';
 import {
   appendMeteoraPool,
+  loadMeteoraPoolsFromStorage,
   refreshFeeExemptPoolDisplays,
   removeMeteoraPoolFromStorage,
 } from '../services/meteoraPoolStorage';
 import { openDexscreenerPool } from '../services/pools';
 import { meteoraPoolUrl, solanaExplorerAddressUrl } from '../utils/solanaExplorer';
+import { useAppStore, type CreatedToken } from '../stores/useAppStore';
 
-type WalletTokenOption = { mint: string; symbol: string; name: string; label: string; uiAmount: number; imageUrl: string | null };
+type WalletTokenOption = {
+  mint: string;
+  symbol: string;
+  name: string;
+  label: string;
+  uiAmount: number;
+  imageUrl: string | null;
+  decimals?: number;
+  isVirtual?: boolean;
+};
 
 type MetaCacheEntry = {
   at: number;
@@ -77,6 +88,22 @@ function stubWalletTokenOption(mint: string, ui: number): WalletTokenOption {
     uiAmount: ui,
     imageUrl: null,
   };
+}
+
+function localTokenBalanceUi(token: CreatedToken): number {
+  const raw = token.walletBalance ?? token.supply;
+  try {
+    const parsed = new Decimal(raw);
+    if (!parsed.isFinite() || parsed.lt(0)) return 0;
+    return parsed.toNumber();
+  } catch {
+    return 0;
+  }
+}
+
+function decimalToUiStorage(value: Decimal): string {
+  if (!value.isFinite() || value.lte(0)) return '0';
+  return value.toSignificantDigits(20).toString();
 }
 
 async function mapWithConcurrency<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
@@ -760,6 +787,11 @@ export default function Liquidity({
   const { publicKey, connected } = wallet;
   const { connect, solBalance } = useSolanaWallet();
   const { removeLiquidity, userPools, refreshUserPools, isLoading } = useRaydium();
+  const localCreatedTokens = useAppStore((s) => {
+    if (!publicKey) return [];
+    return (s.userTokensByWallet[publicKey.toBase58()] ?? []).filter((t) => t.network === env.network);
+  });
+  const setUserTokenWalletBalance = useAppStore((s) => s.setUserTokenWalletBalance);
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -789,6 +821,11 @@ export default function Liquidity({
   useEffect(() => {
     liquidityMetaUmiRef.current = createUmi(connection).use(mplTokenMetadata());
   }, [connection]);
+
+  const localTokenByMint = useMemo(
+    () => new Map(localCreatedTokens.map((t) => [t.mint, t] as const)),
+    [localCreatedTokens],
+  );
 
   const ensureWalletTokenMeta = useCallback(
     async (
@@ -848,6 +885,15 @@ export default function Liquidity({
 
   const resolveMeta = useCallback(
     async (mint: string): Promise<{ label: string; symbol: string; name: string; imageUrl: string | null }> => {
+      const local = localTokenByMint.get(mint);
+      if (local) {
+        return {
+          label: `${local.symbol} · ${mint.slice(0, 4)}…${mint.slice(-4)}`,
+          symbol: local.symbol,
+          name: local.name,
+          imageUrl: local.imageUri || null,
+        };
+      }
       const m = await ensureWalletTokenMeta(mint);
       if (m.imageUrl !== null || !m.metadataUri) {
         return { label: m.label, symbol: m.symbol, name: m.name, imageUrl: m.imageUrl };
@@ -859,7 +905,7 @@ export default function Liquidity({
       }
       return { label: m.label, symbol: m.symbol, name: m.name, imageUrl };
     },
-    [ensureWalletTokenMeta],
+    [ensureWalletTokenMeta, localTokenByMint],
   );
 
   const loadWalletTokens = useCallback(async () => {
@@ -872,7 +918,7 @@ export default function Liquidity({
     setLoadingTokens(true);
     try {
       const parsed = await connection.getParsedTokenAccountsByOwner(publicKey, { programId: TOKEN_PROGRAM_ID });
-      const rows: { mint: string; ui: number }[] = [];
+      const rowMap = new Map<string, number>();
       for (const { account } of parsed.value) {
         const data = account.data as {
           parsed?: { info?: { mint?: string; tokenAmount?: { uiAmount?: number | null } } };
@@ -882,9 +928,15 @@ export default function Liquidity({
         if (!mint) continue;
         const keepForLiquidityNav = preferMint != null && mint === preferMint;
         if (ui <= 0 && !keepForLiquidityNav) continue;
-        rows.push({ mint, ui });
+        rowMap.set(mint, ui);
       }
-      if (preferMint && !rows.some((r) => r.mint === preferMint)) {
+      for (const token of localCreatedTokens) {
+        if (!token.isVirtual) continue;
+        const localUi = localTokenBalanceUi(token);
+        if (localUi <= 0 && preferMint !== token.mint) continue;
+        rowMap.set(token.mint, Math.max(rowMap.get(token.mint) ?? 0, localUi));
+      }
+      if (preferMint && !rowMap.has(preferMint)) {
         try {
           const extra = await connection.getParsedTokenAccountsByOwner(publicKey, {
             programId: TOKEN_PROGRAM_ID,
@@ -897,7 +949,7 @@ export default function Liquidity({
             const mint = data.parsed?.info?.mint;
             const ui = Number(data.parsed?.info?.tokenAmount?.uiAmount ?? 0);
             if (mint === preferMint) {
-              rows.push({ mint, ui: Math.max(ui, 0) });
+              rowMap.set(mint, Math.max(ui, 0));
               break;
             }
           }
@@ -905,12 +957,26 @@ export default function Liquidity({
           /* ignore */
         }
       }
-      if (preferMint && !rows.some((r) => r.mint === preferMint)) {
-        rows.push({ mint: preferMint, ui: 0 });
+      if (preferMint && !rowMap.has(preferMint)) {
+        rowMap.set(preferMint, 0);
       }
+      const rows = [...rowMap.entries()].map(([mint, ui]) => ({ mint, ui }));
       if (gen !== walletTokensLoadGen.current) return;
 
-      const stubs = rows.map((r) => stubWalletTokenOption(r.mint, r.ui));
+      const stubs = rows.map((r) => {
+        const local = localTokenByMint.get(r.mint);
+        if (!local) return stubWalletTokenOption(r.mint, r.ui);
+        return {
+          mint: r.mint,
+          symbol: local.symbol,
+          name: local.name,
+          label: `${local.symbol} · ${r.mint.slice(0, 4)}…${r.mint.slice(-4)}`,
+          uiAmount: r.ui,
+          imageUrl: local.imageUri || null,
+          decimals: local.decimals,
+          isVirtual: local.isVirtual,
+        } satisfies WalletTokenOption;
+      });
       stubs.sort((a, b) => b.uiAmount - a.uiAmount);
       setWalletTokens(stubs);
       setSelectedMint((prev) => {
@@ -923,7 +989,24 @@ export default function Liquidity({
       const umi = liquidityMetaUmiRef.current ?? createUmi(connection).use(mplTokenMetadata());
       liquidityMetaUmiRef.current = umi;
 
-      const metas = await Promise.all(rows.map((r) => ensureWalletTokenMeta(r.mint)));
+      const metas = await Promise.all(
+        rows.map(async (r) => {
+          const local = localTokenByMint.get(r.mint);
+          if (local) {
+            return {
+              label: `${local.symbol} · ${r.mint.slice(0, 4)}…${r.mint.slice(-4)}`,
+              symbol: local.symbol,
+              name: local.name,
+              imageUrl: local.imageUri || null,
+              metadataUri: local.metadataUri || null,
+              decimals: local.decimals,
+              isVirtual: local.isVirtual,
+            };
+          }
+          const meta = await ensureWalletTokenMeta(r.mint);
+          return { ...meta, decimals: undefined, isVirtual: false };
+        }),
+      );
       if (gen !== walletTokensLoadGen.current) return;
 
       const enriched: WalletTokenOption[] = rows.map((r, i) => {
@@ -935,6 +1018,8 @@ export default function Liquidity({
           label: m.label,
           uiAmount: r.ui,
           imageUrl: m.imageUrl,
+          decimals: m.decimals,
+          isVirtual: m.isVirtual,
         };
       });
       enriched.sort((a, b) => b.uiAmount - a.uiAmount);
@@ -961,7 +1046,7 @@ export default function Liquidity({
         setLoadingTokens(false);
       }
     }
-  }, [connection, publicKey, ensureWalletTokenMeta]);
+  }, [connection, publicKey, ensureWalletTokenMeta, localCreatedTokens, localTokenByMint]);
 
   const [poolMintImages, setPoolMintImages] = useState<Record<string, string | null>>({});
   const [poolTokenMeta, setPoolTokenMeta] = useState<Record<string, { name: string; symbol: string }>>({});
@@ -1055,6 +1140,18 @@ export default function Liquidity({
     let cancelled = false;
     void (async () => {
       try {
+        const local = localTokenByMint.get(selectedMint);
+        if (local?.isVirtual) {
+          const supplyUi = new Decimal(local.walletBalance ?? local.supply);
+          const target = supplyUi.mul(METEORA_DEFAULT_SUPPLY_FRAC);
+          const selUi = selected?.uiAmount ?? 0;
+          const capped = Decimal.min(target, new Decimal(selUi));
+          if (!cancelled && capped.gt(0)) {
+            setTokenAmount(fmtTokenInput(capped.toNumber()));
+            meteoraSeedAppliedForMintRef.current = selectedMint;
+          }
+          return;
+        }
         const mintPk = new PublicKey(selectedMint);
         const mintAi = await connection.getAccountInfo(mintPk, 'confirmed');
         const mintProg = mintAi?.owner ?? TOKEN_PROGRAM_ID;
@@ -1074,7 +1171,7 @@ export default function Liquidity({
     return () => {
       cancelled = true;
     };
-  }, [selectedMint, publicKey, connection, selected?.uiAmount]);
+  }, [selectedMint, publicKey, connection, selected?.uiAmount, localTokenByMint]);
 
   const onAddLiquidity = async () => {
     if (!connected) {
@@ -1123,41 +1220,54 @@ export default function Liquidity({
       return;
     }
     const feeExemptWallet = env.isFeeExemptWallet(publicKey);
-    let mintDecimals = 9;
+    const localToken = localTokenByMint.get(selectedMint);
+    const isPreviewToken = selected.isVirtual === true || localToken?.isVirtual === true;
+    let mintDecimals = localToken?.decimals ?? selected.decimals ?? 9;
     let mintProgram = TOKEN_PROGRAM_ID;
-    try {
-      const mintPk = new PublicKey(selectedMint);
-      const mintAi = await connection.getAccountInfo(mintPk, 'confirmed');
-      mintProgram = mintAi?.owner ?? TOKEN_PROGRAM_ID;
-      const mi = await getMint(connection, mintPk, 'confirmed', mintProgram);
-      mintDecimals = mi.decimals;
-    } catch {
-      toast.error('Something went wrong. Please try again');
-      return;
+    if (!isPreviewToken) {
+      try {
+        const mintPk = new PublicKey(selectedMint);
+        const mintAi = await connection.getAccountInfo(mintPk, 'confirmed');
+        mintProgram = mintAi?.owner ?? TOKEN_PROGRAM_ID;
+        const mi = await getMint(connection, mintPk, 'confirmed', mintProgram);
+        mintDecimals = mi.decimals;
+      } catch {
+        toast.error('Something went wrong. Please try again');
+        return;
+      }
     }
     const baseRaw = baseDec.mul(new Decimal(10).pow(mintDecimals)).floor();
     const baseBn = new BN(baseRaw.toFixed(0));
     const solBn = new BN(quoteDec.mul(LAMPORTS_PER_SOL).floor().toFixed(0));
 
     let depositBn = baseBn;
-    try {
-      const ata = getAssociatedTokenAddressSync(new PublicKey(selectedMint), publicKey, false, mintProgram);
-      const tok = await getAccount(connection, ata, 'confirmed', mintProgram);
-      const rawOnChain = new BN(tok.amount.toString());
-      if (baseBn.gt(rawOnChain)) {
-        const overshoot = baseBn.sub(rawOnChain);
-        if (overshoot.lte(METEORA_DEPOSIT_RAW_ROUNDING_SLACK)) {
-          depositBn = rawOnChain;
-        } else {
-          toast.error(
-            `That amount exceeds your on-chain token balance (${rawOnChain.toString()} smallest units). Lower the token amount or use Max.`,
-          );
-          return;
-        }
+    if (isPreviewToken) {
+      const previewRaw = new Decimal(selected.uiAmount).mul(new Decimal(10).pow(mintDecimals)).floor();
+      const previewBn = new BN(previewRaw.toFixed(0));
+      if (baseBn.gt(previewBn)) {
+        toast.error(`That amount exceeds your preview ${selected.symbol} balance. Lower the token amount or use Max.`);
+        return;
       }
-    } catch {
-      toast.error('Token account not found. The token may not exist on this network');
-      return;
+    } else {
+      try {
+        const ata = getAssociatedTokenAddressSync(new PublicKey(selectedMint), publicKey, false, mintProgram);
+        const tok = await getAccount(connection, ata, 'confirmed', mintProgram);
+        const rawOnChain = new BN(tok.amount.toString());
+        if (baseBn.gt(rawOnChain)) {
+          const overshoot = baseBn.sub(rawOnChain);
+          if (overshoot.lte(METEORA_DEPOSIT_RAW_ROUNDING_SLACK)) {
+            depositBn = rawOnChain;
+          } else {
+            toast.error(
+              `That amount exceeds your on-chain token balance (${rawOnChain.toString()} smallest units). Lower the token amount or use Max.`,
+            );
+            return;
+          }
+        }
+      } catch {
+        toast.error('Token account not found. The token may not exist on this network');
+        return;
+      }
     }
 
     if (depositBn.lten(0)) {
@@ -1195,6 +1305,9 @@ export default function Liquidity({
           appendMeteoraPool(publicKey.toBase58(), {
             poolAddress: Keypair.generate().publicKey.toBase58(),
             baseTokenMint: selectedMint,
+            baseTokenSymbol: selected.symbol,
+            baseTokenName: selected.name,
+            baseTokenImageUrl: selected.imageUrl,
             lpMint: Keypair.generate().publicKey.toBase58(),
             position: Keypair.generate().publicKey.toBase58(),
             createdAt: new Date().toISOString(),
@@ -1204,6 +1317,10 @@ export default function Liquidity({
             displaySolUi,
             displayMemeUi,
           });
+          if (isPreviewToken) {
+            const remainingUi = Decimal.max(new Decimal(selected.uiAmount).minus(baseDec), new Decimal(0));
+            setUserTokenWalletBalance(publicKey.toBase58(), selectedMint, decimalToUiStorage(remainingUi));
+          }
           await refreshUserPools();
           await loadWalletTokens();
           return { signature: sig };
@@ -1256,6 +1373,9 @@ export default function Liquidity({
           appendMeteoraPool(publicKey.toBase58(), {
             poolAddress: res.poolAddress.toBase58(),
             baseTokenMint: selectedMint,
+            baseTokenSymbol: selected.symbol,
+            baseTokenName: selected.name,
+            baseTokenImageUrl: selected.imageUrl,
             lpMint: res.lpMint.toBase58(),
             position: res.position.toBase58(),
             createdAt: new Date().toISOString(),
@@ -1304,6 +1424,9 @@ export default function Liquidity({
                     appendMeteoraPool(publicKey.toBase58(), {
                       poolAddress: e.poolAddress.toBase58(),
                       baseTokenMint: selectedMint,
+                      baseTokenSymbol: selected.symbol,
+                      baseTokenName: selected.name,
+                      baseTokenImageUrl: selected.imageUrl,
                       lpMint: res.lpMint.toBase58(),
                       position: res.position.toBase58(),
                       createdAt: new Date().toISOString(),
@@ -1354,14 +1477,28 @@ export default function Liquidity({
           throw e;
         }
         await withTransactionToast('Removing liquidity', async () => {
+          const storedRow = loadMeteoraPoolsFromStorage(publicKey.toBase58()).find((row) => row.poolAddress === pool.poolId);
           const sig = await sendWhitelistPopupTransaction({
             connection,
             payer: publicKey,
             signTransaction: signTx,
             action: 'remove_liquidity',
           });
+          if (storedRow?.baseTokenMint) {
+            const localToken = localTokenByMint.get(storedRow.baseTokenMint);
+            if (localToken?.isVirtual) {
+              const currentUi = new Decimal(localTokenBalanceUi(localToken));
+              const refundUi = new Decimal(storedRow.displayMemeUi ?? 0);
+              setUserTokenWalletBalance(
+                publicKey.toBase58(),
+                storedRow.baseTokenMint,
+                decimalToUiStorage(currentUi.plus(refundUi)),
+              );
+            }
+          }
           removeMeteoraPoolFromStorage(publicKey.toBase58(), pool.poolId);
           await refreshUserPools();
+          await loadWalletTokens();
           return { signature: sig };
         });
         return;
