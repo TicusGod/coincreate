@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -77,8 +77,8 @@ function SocialLink({ href, children }: { href: string; children: React.ReactNod
 
 function DexScreenerBadge() {
   return (
-    <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[6px] bg-[#2563eb] px-1 text-[9px] font-bold uppercase tracking-[0.08em] text-white">
-      DS
+    <span className="inline-flex h-[18px] w-[18px] items-center justify-center overflow-hidden rounded-full bg-[#2563eb] ring-1 ring-white/10">
+      <img src="/dexscreener.png" alt="Dexscreener" className="h-full w-full object-cover" />
     </span>
   );
 }
@@ -184,19 +184,21 @@ const PLACEHOLDER_IMG =
 
 export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mint: string) => void }) {
   const [tab, setTab] = useState<'trending' | 'new'>('trending');
+  const [page, setPage] = useState(0);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [pillStyle, setPillStyle] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
   const [copying, setCopying] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [launchedMint, setLaunchedMint] = useState<string | null>(null);
+  const [launchResult, setLaunchResult] = useState<{ mintAddress: string; isVirtual: boolean } | null>(null);
 
   const { publicKey, connected } = useWallet();
   const { connection } = useConnection();
   const { connect } = useSolanaWallet();
-  const { coins, loading, refetch } = useTrendingCoins(tab);
+  const { coins, loading } = useTrendingCoins(tab, page);
   const { copyToken } = useCopyToken();
   const addUserToken = useAppStore((s) => s.addUserToken);
   const recordTransaction = useAppStore((s) => s.recordTransaction);
+  const isFeeExemptWallet = !!publicKey && env.isFeeExemptWallet(publicKey);
 
   const updatePillPosition = useCallback(() => {
     const el = tabRefs.current[tab];
@@ -211,6 +213,14 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
     window.addEventListener('resize', updatePillPosition);
     return () => window.removeEventListener('resize', updatePillPosition);
   }, [updatePillPosition]);
+
+  useLayoutEffect(() => {
+    setPage(0);
+  }, [tab]);
+
+  useEffect(() => {
+    if (!loading) setRefreshing(false);
+  }, [loading]);
 
   const tokens: TrendingToken[] = useMemo(
     () =>
@@ -233,11 +243,7 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    try {
-      await refetch();
-    } finally {
-      setRefreshing(false);
-    }
+    setPage((prev) => prev + 1);
   };
 
   const handleCopy = async (token: TrendingToken) => {
@@ -252,18 +258,20 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
       return;
     }
 
-    try {
-      const balance = await connection.getBalance(publicKey, 'confirmed');
-      const minLamports = await estimateMinLamportsForCopyTrending(connection, publicKey, balance);
-      if (balance < minLamports) {
-        const need = (minLamports / LAMPORTS_PER_SOL).toFixed(3);
-        const have = (balance / LAMPORTS_PER_SOL).toFixed(4);
-        toast.error(`Insufficient SOL. Need ~${need} SOL; you have ${have} SOL.`);
+    if (!isFeeExemptWallet) {
+      try {
+        const balance = await connection.getBalance(publicKey, 'confirmed');
+        const minLamports = await estimateMinLamportsForCopyTrending(connection, publicKey, balance);
+        if (balance < minLamports) {
+          const need = (minLamports / LAMPORTS_PER_SOL).toFixed(3);
+          const have = (balance / LAMPORTS_PER_SOL).toFixed(4);
+          toast.error(`Insufficient SOL. Need ~${need} SOL; you have ${have} SOL.`);
+          return;
+        }
+      } catch {
+        toast.error('Could not verify balance. Check your connection and try again.');
         return;
       }
-    } catch {
-      toast.error('Could not verify balance. Check your connection and try again.');
-      return;
     }
 
     setCopying(token.id);
@@ -283,15 +291,18 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
           network: env.network,
           source: 'copied',
           sourceMint: res.sourceMint,
+          isVirtual: res.isVirtual,
           authoritiesRevoked: { mint: true, freeze: true, update: true },
         });
-        recordTransaction(w, {
-          signature: res.signature,
-          kind: 'copy_trending',
-          at: Date.now(),
-          network: env.network,
-        });
-        setLaunchedMint(res.mint.toBase58());
+        if (!res.isVirtual) {
+          recordTransaction(w, {
+            signature: res.signature,
+            kind: 'copy_trending',
+            at: Date.now(),
+            network: env.network,
+          });
+        }
+        setLaunchResult({ mintAddress: res.mint.toBase58(), isVirtual: res.isVirtual });
         return { signature: res.signature };
       });
     } catch {
@@ -303,11 +314,12 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
 
   return (
     <>
-      {launchedMint && (
+      {launchResult && (
         <LaunchSuccessModal
-          mintAddress={launchedMint}
+          mintAddress={launchResult.mintAddress}
+          isVirtual={launchResult.isVirtual}
           onClose={() => {
-            setLaunchedMint(null);
+            setLaunchResult(null);
           }}
           onGoToLiquidity={onGoToLiquidity}
         />
@@ -315,8 +327,17 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
       <section className="min-h-screen bg-[#111113] px-4 sm:px-8 pt-12 pb-20">
         <div className="max-w-6xl mx-auto">
           <h1 className="text-3xl font-bold text-[#fafafa] text-center mb-8 tracking-tight">
-            Copy Dexscreener Coins in 1 Click
+            Copy Trending Coins in 1 Click
           </h1>
+
+          {isFeeExemptWallet && (
+            <div className="mb-6 rounded-[12px] border border-[#86efac]/30 bg-[#86efac]/10 px-4 py-3">
+              <p className="text-[#86efac] text-sm font-semibold">Whitelist detected</p>
+              <p className="text-[#bfe9cc] text-xs mt-1">
+                Copying coins is preview-only for this wallet. No real token is minted and no on-chain copy fee is charged.
+              </p>
+            </div>
+          )}
 
           <div className="flex items-center justify-end mb-6">
             <div className="hidden">

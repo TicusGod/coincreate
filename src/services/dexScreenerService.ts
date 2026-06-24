@@ -3,6 +3,7 @@ import axios from 'axios';
 const DEXSCREENER_API = 'https://api.dexscreener.com';
 const CACHE_MS = 30_000;
 const TOKEN_BATCH_SIZE = 30;
+const DEFAULT_POOL_LIMIT = 96;
 
 export type DexScreenerCoin = {
   mint: string;
@@ -32,6 +33,7 @@ type DexScreenerProfile = {
   description?: unknown;
   links?: unknown;
   updatedAt?: unknown;
+  claimDate?: unknown;
 };
 
 type DexScreenerPair = {
@@ -152,10 +154,42 @@ async function dexGet<T>(path: string): Promise<T> {
   return res.data;
 }
 
-async function fetchSeedList(tab: DexScreenerListTab): Promise<DexScreenerProfile[]> {
-  const path = tab === 'trending' ? '/token-boosts/top/v1' : '/token-profiles/latest/v1';
+function normalizeSeedList(data: unknown): DexScreenerProfile[] {
+  if (Array.isArray(data)) return data as DexScreenerProfile[];
+  if (data && typeof data === 'object' && Array.isArray((data as { data?: unknown[] }).data)) {
+    return (data as { data: DexScreenerProfile[] }).data;
+  }
+  return [];
+}
+
+async function fetchSeedList(path: string): Promise<DexScreenerProfile[]> {
   const data = await axiosRetry(() => dexGet<unknown>(path));
-  return Array.isArray(data) ? (data as DexScreenerProfile[]) : [];
+  return normalizeSeedList(data);
+}
+
+async function fetchSeedPool(tab: DexScreenerListTab): Promise<DexScreenerProfile[]> {
+  const paths =
+    tab === 'trending'
+      ? [
+          '/token-boosts/top/v1',
+          '/token-boosts/latest/v1',
+          '/community-takeovers/latest/v1',
+          '/token-profiles/latest/v1',
+        ]
+      : ['/token-profiles/latest/v1', '/community-takeovers/latest/v1', '/token-boosts/latest/v1'];
+
+  const lists = await Promise.all(paths.map((path) => fetchSeedList(path)));
+  return lists.flat();
+}
+
+function takeWrapped<T>(items: T[], limit: number, offset: number): T[] {
+  if (items.length <= limit) return items;
+  const start = ((offset % items.length) + items.length) % items.length;
+  const out: T[] = [];
+  for (let i = 0; i < Math.min(limit, items.length); i++) {
+    out.push(items[(start + i) % items.length]!);
+  }
+  return out;
 }
 
 async function fetchPairsByMint(mints: string[]): Promise<Map<string, DexScreenerPair[]>> {
@@ -199,7 +233,7 @@ function normalizeCoin(source: DexScreenerProfile, pair: DexScreenerPair | null)
     priceUsd: num(pair?.priceUsd),
     volume24h: num(pair?.volume?.h24),
     createdAt: num(pair?.pairCreatedAt),
-    updatedAt: Date.parse(str(source.updatedAt)) || 0,
+    updatedAt: Date.parse(str(source.updatedAt ?? source.claimDate)) || 0,
     twitter: pairSocials.twitter ?? linkSocials.twitter,
     telegram: pairSocials.telegram ?? linkSocials.telegram,
     website: pairSocials.website ?? linkSocials.website,
@@ -210,26 +244,29 @@ function normalizeCoin(source: DexScreenerProfile, pair: DexScreenerPair | null)
 export async function getDexScreenerCoins(params?: {
   tab?: DexScreenerListTab;
   limit?: number;
+  offset?: number;
   force?: boolean;
 }): Promise<DexScreenerCoin[]> {
   const tab = params?.tab ?? 'trending';
   const limit = params?.limit ?? 24;
+  const offset = params?.offset ?? 0;
   const force = params?.force ?? false;
-  const cacheKey = `${tab}-${limit}`;
+  const cacheKey = `${tab}-${limit}-${offset}`;
 
   if (!force) {
     const hit = cache.get(cacheKey);
     if (hit && Date.now() - hit.at < CACHE_MS) return hit.data;
   }
 
-  const seeds = (await fetchSeedList(tab))
+  const seeds = (await fetchSeedPool(tab))
     .filter((row) => str(row.chainId).toLowerCase() === 'solana')
     .filter((row) => !!str(row.tokenAddress));
 
-  const uniqueMints = [...new Set(seeds.map((row) => str(row.tokenAddress)).filter(Boolean))].slice(0, limit);
-  const pairsByMint = await fetchPairsByMint(uniqueMints);
+  const uniqueMints = [...new Set(seeds.map((row) => str(row.tokenAddress)).filter(Boolean))].slice(0, DEFAULT_POOL_LIMIT);
+  const selectedMints = takeWrapped(uniqueMints, limit, offset);
+  const pairsByMint = await fetchPairsByMint(selectedMints);
 
-  const coins = uniqueMints
+  const coins = selectedMints
     .map((mint) => {
       const source = seeds.find((row) => str(row.tokenAddress) === mint);
       if (!source) return null;

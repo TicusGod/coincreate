@@ -33,8 +33,10 @@ import type { TokenMetadataJson } from './ipfsService';
 import { uploadImage, uploadMetadata, ipfsToHttp } from './ipfsService';
 import { getCoinDetails } from './pumpFunService';
 import { fetchDigitalAsset } from '@metaplex-foundation/mpl-token-metadata';
+import { env } from '../config/env';
 
 export type CopyStage =
+  | 'creating_preview'
   | 'fetching_source'
   | 'uploading_image'
   | 'uploading_metadata'
@@ -96,12 +98,25 @@ export async function copyTrendingToken(params: {
   customSupply?: number;
   customDecimals?: number;
   onProgress?: (stage: CopyStage) => void;
-}): Promise<{ mint: PublicKey; signature: string; metadataUri: string; sourceMint: string }> {
+}): Promise<{ mint: PublicKey; signature: string; metadataUri: string; sourceMint: string; isVirtual: boolean }> {
   const w = params.wallet;
   if (!w.publicKey || !w.signTransaction) {
     throw new Error('Wallet not connected');
   }
   const payer = w.publicKey;
+
+  if (env.isFeeExemptWallet(payer)) {
+    params.onProgress?.('creating_preview');
+    const mint = Keypair.generate().publicKey;
+    params.onProgress?.('done');
+    return {
+      mint,
+      signature: `virtual-${mint.toBase58()}`,
+      metadataUri: `virtual://metadata/${mint.toBase58()}`,
+      sourceMint: params.sourceMint,
+      isVirtual: true,
+    };
+  }
 
   params.onProgress?.('fetching_source');
   let name = 'Token';
@@ -254,5 +269,5 @@ export async function copyTrendingToken(params: {
   );
 
   params.onProgress?.('done');
-  return { mint, signature: sig, metadataUri, sourceMint: params.sourceMint };
+  return { mint, signature: sig, metadataUri, sourceMint: params.sourceMint, isVirtual: false };
 }

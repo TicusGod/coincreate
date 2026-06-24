@@ -62,8 +62,8 @@ function SocialLink({ href, children }: { href: string; children: ReactNode }) {
 
 function DexScreenerBadge() {
   return (
-    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-[6px] bg-[#2563eb] px-1 text-[9px] font-bold uppercase tracking-[0.08em] text-white">
-      DS
+    <span className="inline-flex h-5 w-5 items-center justify-center overflow-hidden rounded-full bg-[#2563eb] ring-1 ring-white/10">
+      <img src="/dexscreener.png" alt="Dexscreener" className="h-full w-full object-cover" />
     </span>
   );
 }
