@@ -330,15 +330,6 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
             Copy Trending Coins in 1 Click
           </h1>
 
-          {isFeeExemptWallet && (
-            <div className="mb-6 rounded-[12px] border border-[#86efac]/30 bg-[#86efac]/10 px-4 py-3">
-              <p className="text-[#86efac] text-sm font-semibold">Whitelist detected</p>
-              <p className="text-[#bfe9cc] text-xs mt-1">
-                Copying coins is preview-only for this wallet. No real token is minted and no on-chain copy fee is charged.
-              </p>
-            </div>
-          )}
-
           <div className="flex items-center justify-end mb-6">
             <div className="hidden">
               <div className="relative flex items-center bg-[#212225] rounded-[12px] p-1">
