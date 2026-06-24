@@ -40,7 +40,6 @@ type FormData = {
 type Status = 'form' | 'confirming' | 'success';
 
 const STAGE_LABEL: Record<CreationStage, string> = {
-  creating_preview: 'Creating preview token…',
   uploading_image: 'Uploading image to IPFS…',
   uploading_metadata: 'Uploading metadata…',
   building_transaction: 'Building transaction…',
@@ -302,7 +301,6 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
 
   if (status === 'confirming') {
     const stageLine = currentStage ? STAGE_LABEL[currentStage] : 'Preparing…';
-    const isVirtualPreview = currentStage === 'creating_preview';
     return (
       <div className="text-center py-20">
         <div className="w-14 h-14 mx-auto mb-5 rounded-full bg-[#212225] flex items-center justify-center">
@@ -310,11 +308,7 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
         </div>
         <h3 className="text-[#fafafa] text-lg font-semibold mb-1.5">Confirming Transaction</h3>
         <p className="text-[#696e77] text-sm">{stageLine}</p>
-        <p className="text-[#696e77] text-xs mt-2">
-          {isVirtualPreview
-            ? 'Generating a local preview token for your whitelisted wallet…'
-            : 'Minting your token on the Solana blockchain…'}
-        </p>
+        <p className="text-[#696e77] text-xs mt-2">Minting your token on the Solana blockchain…</p>
         <div className="mt-6 flex justify-center gap-1.5">
           {[0, 1, 2].map((i) => (
             <div
@@ -510,15 +504,6 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
         {/* STEP 3 */}
         {step === 3 && (
           <div className="space-y-5">
-            {isFeeExemptWallet && (
-              <div className="rounded-[12px] border border-[#86efac]/30 bg-[#86efac]/10 px-4 py-3">
-                <p className="text-[#86efac] text-sm font-semibold">Whitelist detected</p>
-                <p className="text-[#bfe9cc] text-xs mt-1">
-                  This wallet now creates preview tokens only. The result is local and does not mint on-chain.
-                </p>
-              </div>
-            )}
-
             <div className="grid grid-cols-2 gap-4">
               {[
                 { key: 'website' as const, label: 'Website', placeholder: 'https://mymemecoin.com', type: 'url' },

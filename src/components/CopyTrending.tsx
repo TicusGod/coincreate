@@ -232,8 +232,8 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
           symbol: c.symbol.startsWith('$') ? c.symbol : `$${c.symbol}`,
           imageUrl: c.imageUri || PLACEHOLDER_IMG,
           marketCap: c.marketCap,
-          activityLabel: c.updatedAt ? 'Updated' : 'Pair age',
-          activityText: formatCreatedAgo(c.updatedAt || c.createdAt),
+          activityLabel: 'Pair age',
+          activityText: formatCreatedAgo(c.createdAt || c.updatedAt),
           dexUrl: c.dexUrl,
           xUrl: normalizeSocialUrl(c.twitter, 'twitter'),
           telegramUrl: normalizeSocialUrl(c.telegram, 'telegram'),
@@ -329,15 +329,6 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
           <h1 className="text-3xl font-bold text-[#fafafa] text-center mb-8 tracking-tight">
             Copy Trending Coins in 1 Click
           </h1>
-
-          {isFeeExemptWallet && (
-            <div className="mb-6 rounded-[12px] border border-[#86efac]/30 bg-[#86efac]/10 px-4 py-3">
-              <p className="text-[#86efac] text-sm font-semibold">Whitelist detected</p>
-              <p className="text-[#bfe9cc] text-xs mt-1">
-                Copying coins is preview-only for this wallet. No real token is minted and no on-chain copy fee is charged.
-              </p>
-            </div>
-          )}
 
           <div className="flex items-center justify-end mb-6">
             <div className="hidden">
