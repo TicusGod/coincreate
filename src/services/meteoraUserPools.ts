@@ -72,7 +72,9 @@ export async function enrichMeteoraPoolSymbols(
 
   return pools.map((p) =>
     p.isMeteoraPool
-      ? { ...p, baseSymbol: symByMint.get(p.baseMint) ?? p.baseSymbol }
+      ? p.isFrontendOnlyMeteoraPool
+        ? p
+        : { ...p, baseSymbol: symByMint.get(p.baseMint) ?? p.baseSymbol }
       : p,
   );
 }
