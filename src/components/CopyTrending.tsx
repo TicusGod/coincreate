@@ -80,7 +80,7 @@ function DexScreenerBadge() {
     <img
       src="/dexscreener.png"
       alt="Dexscreener"
-      className="h-4 w-4 object-contain opacity-70"
+      className="h-4 w-4 object-contain"
     />
   );
 }

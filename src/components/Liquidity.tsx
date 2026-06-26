@@ -62,6 +62,7 @@ type MetaCacheEntry = {
 };
 
 const META_IMAGE_FETCH_CONCURRENCY = 6;
+const EMPTY_CREATED_TOKENS: CreatedToken[] = [];
 
 async function imageUrlFromMetadataUri(uriRaw: string): Promise<string | null> {
   const uri = uriRaw.replace(/\0/g, '').trim();
@@ -787,11 +788,14 @@ export default function Liquidity({
   const { publicKey, connected } = wallet;
   const { connect, solBalance } = useSolanaWallet();
   const { removeLiquidity, userPools, refreshUserPools, isLoading } = useRaydium();
-  const localCreatedTokens = useAppStore((s) => {
-    if (!publicKey) return [];
-    return (s.userTokensByWallet[publicKey.toBase58()] ?? []).filter((t) => t.network === env.network);
-  });
+  const storedWalletTokens = useAppStore((s) =>
+    publicKey ? (s.userTokensByWallet[publicKey.toBase58()] ?? EMPTY_CREATED_TOKENS) : EMPTY_CREATED_TOKENS,
+  );
   const setUserTokenWalletBalance = useAppStore((s) => s.setUserTokenWalletBalance);
+  const localCreatedTokens = useMemo(
+    () => storedWalletTokens.filter((t) => t.network === env.network),
+    [storedWalletTokens],
+  );
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
