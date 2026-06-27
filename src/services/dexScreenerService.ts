@@ -3,7 +3,7 @@ import axios from 'axios';
 const DEXSCREENER_API = 'https://api.dexscreener.com';
 const CACHE_MS = 30_000;
 const TOKEN_BATCH_SIZE = 30;
-const DEFAULT_POOL_LIMIT = 96;
+const DEFAULT_POOL_LIMIT = 264;
 
 export type DexScreenerCoin = {
   mint: string;
