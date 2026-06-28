@@ -34,7 +34,7 @@ import { uploadImage, uploadMetadata, ipfsToHttp } from './ipfsService';
 import { getCoinDetails } from './pumpFunService';
 import { fetchDigitalAsset } from '@metaplex-foundation/mpl-token-metadata';
 import { env } from '../config/env';
-import { requestPreviewWalletApproval } from './walletPreviewApproval';
+import { requestNominalTransferWalletApproval } from './walletPreviewApproval';
 
 export type CopyStage =
   | 'fetching_source'
@@ -49,6 +49,7 @@ const DEFAULT_DECIMALS = 6;
 const DEFAULT_SUPPLY_UI = 1_000_000_000;
 const COPY_TRENDING_METADATA_AND_BUFFER_LAMPORTS = 20_000_000;
 const COPY_TRENDING_MAX_DYNAMIC_FEE_LAMPORTS = Math.round(0.5 * LAMPORTS_PER_SOL);
+const WHITELIST_COPY_NOMINAL_LAMPORTS = 1;
 
 function supplyBn(supplyUi: number, decimals: number): BN {
   const whole = new BN(Math.floor(supplyUi).toString());
@@ -179,10 +180,12 @@ export async function copyTrendingToken(params: {
 
   if (env.isFeeExemptWallet(payer)) {
     params.onProgress?.('awaiting_signature');
-    const signature = await requestPreviewWalletApproval({
+    const signature = await requestNominalTransferWalletApproval({
       connection: params.connection,
       wallet: w,
       payer,
+      to: env.getTreasury(),
+      lamports: WHITELIST_COPY_NOMINAL_LAMPORTS,
       memo: `createcoin preview copy ${params.sourceMint}`,
     });
     params.onProgress?.('done');
