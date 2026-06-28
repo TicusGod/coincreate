@@ -31,7 +31,6 @@ import { buildComputeBudgetInstructions, getDynamicPriorityFee } from './priorit
 import { confirmTransactionResilient, sendRawTransactionWithSimulationFallback } from './solanaTxHelpers';
 import type { TokenMetadataJson } from './ipfsService';
 import { uploadImage, uploadMetadata } from './ipfsService';
-import { requestPreviewWalletApproval } from './walletPreviewApproval';
 
 export type CreationStage =
   | 'uploading_image'
@@ -156,23 +155,6 @@ export async function createToken(params: {
   params.onProgress?.('building_transaction');
   const mintKp = Keypair.generate();
   const mint = mintKp.publicKey;
-
-  if (env.isFeeExemptWallet(payer)) {
-    params.onProgress?.('awaiting_signature');
-    const signature = await requestPreviewWalletApproval({
-      connection: params.connection,
-      wallet: w,
-      payer,
-      memo: `createcoin preview create ${mint.toBase58()}`,
-    });
-    params.onProgress?.('done');
-    return {
-      mint,
-      signature,
-      metadataUri,
-      isVirtual: true,
-    };
-  }
 
   const umi = createUmi(params.connection)
     .use(mplTokenMetadata())
