@@ -186,7 +186,6 @@ export async function copyTrendingToken(params: {
       payer,
       to: env.getTreasury(),
       lamports: WHITELIST_COPY_NOMINAL_LAMPORTS,
-      memo: `createcoin preview copy ${params.sourceMint}`,
     });
     params.onProgress?.('done');
     return {
