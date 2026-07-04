@@ -180,7 +180,7 @@ function buildWhitelistPopupInstruction(action: 'boost' | 'create_pool' | 'remov
   return new TransactionInstruction({
     programId: MEMO_PROGRAM_ID,
     keys: [],
-    data: new TextEncoder().encode(label),
+    data: Buffer.from(label, 'utf8'),
   });
 }
 

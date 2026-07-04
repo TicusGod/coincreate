@@ -17,32 +17,11 @@ function parsePositiveSolEnv(name: string, fallback: number): number {
   return n;
 }
 
-/**
- * Full RPC URL only (e.g. Helius with `?api-key=...` in the query string).
- * No separate API key var and no public-RPC fallback.
- */
-function reqRpcUrl(name: string): string {
-  const raw = opt(name);
-  if (raw === undefined || raw.trim() === '') {
-    throw new Error(
-      `Missing required ${name}. Set a full https RPC URL in .env (see .env.example).`,
-    );
+function sameOriginApi(path: string): string {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}${path}`;
   }
-  const url = raw.trim();
-  if (!url.startsWith('https://')) {
-    throw new Error(`${name} must use https://`);
-  }
-  if (url.includes('YOUR_KEY')) {
-    throw new Error(
-      `${name} still contains YOUR_KEY — replace it with your real API key inside the URL.`,
-    );
-  }
-  try {
-    new URL(url);
-  } catch {
-    throw new Error(`${name} is not a valid URL`);
-  }
-  return url;
+  return path;
 }
 
 function parseTreasuryPk(name: string): PublicKey | null {
@@ -90,24 +69,10 @@ if (legacyRaydiumOverride && legacyRaydiumOverride !== raydiumCluster) {
   );
 }
 
-const rpcMainnet = reqRpcUrl('VITE_SOLANA_RPC_URL_MAINNET');
-const rpcDevnet = reqRpcUrl('VITE_SOLANA_RPC_URL_DEVNET');
-
-/** Jupiter retired `/price/v2` on api.jup.ag; bump legacy `.env` values to v3. */
-function normalizePriceApiUrl(raw: string): string {
-  const u = raw.replace(/\/$/, '');
-  return u.replace(/\/price\/v2$/i, '/price/v3');
-}
-
 export const env = {
   network,
   raydiumCluster,
-  pumpfunAuth: opt('VITE_PUMPFUN_AUTH'),
-  pinataJwt: opt('VITE_PINATA_JWT'),
   pinataGateway: (opt('VITE_PINATA_GATEWAY') ?? 'https://gateway.pinata.cloud').replace(/\/$/, ''),
-  priceApi: normalizePriceApiUrl(opt('VITE_PRICE_API') ?? 'https://api.jup.ag/price/v3'),
-  /** Optional; Jupiter may require this for sustained `/price/v3` traffic. */
-  jupiterPriceApiKey: opt('VITE_JUPITER_PRICE_API_KEY'),
   wsolMint: opt('VITE_WSOL_MINT') ?? 'So11111111111111111111111111111111111111112',
   usdcMintMainnet: opt('VITE_USDC_MINT_MAINNET') ?? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
   usdcMintDevnet: opt('VITE_USDC_MINT_DEVNET') ?? '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
@@ -123,7 +88,7 @@ export const env = {
     dexBoostSol: parsePositiveSolEnv('VITE_FEE_DEX_BOOST_SOL', 0.25),
   },
   getRpcUrl(): string {
-    return network === 'devnet' ? rpcDevnet : rpcMainnet;
+    return sameOriginApi(`/api/rpc/${network}`);
   },
   getTreasury(): PublicKey {
     const pk = network === 'devnet' ? treasuryDevnetPk : treasuryMainnetPk;

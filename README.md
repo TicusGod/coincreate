@@ -11,7 +11,7 @@ Vite + React + TypeScript SPA for creating SPL tokens with Metaplex metadata, op
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and fill required values (at minimum both platform treasuries and RPC if not using public endpoints).
+1. Copy `.env.example` to `.env` and fill required values (at minimum both platform treasuries and the server-side RPC URLs).
 
 2. Install dependencies:
 
@@ -42,7 +42,8 @@ npm run build
 ## Network and RPC
 
 - Set `VITE_SOLANA_NETWORK` to `mainnet-beta` or `devnet`.
-- **Required:** `VITE_SOLANA_RPC_URL_MAINNET` and `VITE_SOLANA_RPC_URL_DEVNET` — each must be a full `https://` URL with your provider key embedded (e.g. Helius `?api-key=...`). There is no separate API key variable and no fallback to public RPC; missing or placeholder URLs fail fast at startup.
+- **Required server-only envs:** `SOLANA_RPC_URL_MAINNET` and `SOLANA_RPC_URL_DEVNET` — each must be a full `https://` URL with your provider key embedded (for example Helius `?api-key=...`).
+- The browser now connects to same-origin `/api/rpc/<network>`; the real provider URL stays server-side and never ships in the Vite bundle.
 
 Raydium’s cluster is **always** derived from `VITE_SOLANA_NETWORK` (mainnet-beta → Raydium `mainnet`, devnet → `devnet`). A mismatched `VITE_RAYDIUM_CLUSTER` in `.env` will fail startup with a clear error — remove that variable if present.
 
@@ -67,12 +68,13 @@ Optional fee overrides: see `.env.example` (`VITE_FEE_*`).
 
 ## External APIs
 
-- **Pump.fun (browser vs Postman):** Pump’s `*.pump.fun` APIs typically **omit `Access-Control-Allow-Origin`**, so the app calls same-origin **`/api/pump/*`** (Vite dev proxy + Vercel `api/pump/**/*.js` serverless routes). **`VITE_PUMPFUN_AUTH`** is sent as `Authorization` when set.
-- **Jupiter Price v2:** `VITE_PRICE_API` for USD hints on pool cards.
-- **Pinata:** `VITE_PINATA_JWT` for image and JSON metadata uploads during token creation and copy.
+- **Pump.fun (browser vs Postman):** Pump’s `*.pump.fun` APIs typically **omit `Access-Control-Allow-Origin`**, so the app calls same-origin **`/api/pump/*`** (Vite dev proxy + Vercel `api/pump/**/*.js` serverless routes). Optional `PUMPFUN_AUTH` is injected server-side when set.
+- **Jupiter price hints:** the browser calls same-origin **`/api/price`**; optional `JUPITER_PRICE_API_KEY` stays server-side.
+- **Pinata uploads:** the browser calls same-origin **`/api/pinata/*`**; `PINATA_JWT` stays server-side.
 
 ## Security notes
 
 - Never commit `.env` or real JWTs / keys.
+- Secrets must not use the `VITE_` prefix unless they are intentionally public.
 - Prefer dedicated low-privilege Pinata keys scoped to uploads only.
 - Review transaction previews in the wallet before approving.

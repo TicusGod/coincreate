@@ -5,11 +5,7 @@ interface ImportMetaEnv {
   readonly PROD: boolean;
   readonly MODE: string;
   readonly VITE_SOLANA_NETWORK: string;
-  readonly VITE_SOLANA_RPC_URL_MAINNET: string;
-  readonly VITE_SOLANA_RPC_URL_DEVNET: string;
   readonly VITE_RAYDIUM_CLUSTER?: string;
-  readonly VITE_PUMPFUN_AUTH?: string;
-  readonly VITE_PINATA_JWT?: string;
   readonly VITE_PINATA_GATEWAY?: string;
   readonly VITE_PLATFORM_TREASURY_MAINNET: string;
   readonly VITE_PLATFORM_TREASURY_DEVNET: string;
@@ -26,7 +22,6 @@ interface ImportMetaEnv {
   readonly VITE_WSOL_MINT: string;
   readonly VITE_USDC_MINT_MAINNET: string;
   readonly VITE_USDC_MINT_DEVNET: string;
-  readonly VITE_PRICE_API?: string;
   readonly VITE_SUPABASE_URL?: string;
   readonly VITE_SUPABASE_ANON_KEY?: string;
   readonly VITE_AXIOM_URL?: string;

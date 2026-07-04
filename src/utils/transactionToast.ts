@@ -54,8 +54,7 @@ function formatSignatureTail(sig: string): string {
 }
 
 /** When no `successMessage` is set, show a short line from the loading label plus a tx hint. */
-function defaultSuccessBody(label: string, signature?: string): string {
-  const tail = signature ? ` · ${formatSignatureTail(signature)}` : '';
+function defaultSuccessBody(label: string): string {
   const low = label.toLowerCase();
   if (low.includes('approve boost')) return `Boost payment confirmed`;
   if (low.includes('creating pool')) return `Pool transaction confirmed`;
@@ -89,7 +88,7 @@ export async function withTransactionToast<T>(
           duration: options?.successDuration ?? 4000,
         });
       } else {
-        toast.success(defaultSuccessBody(label, sig), { duration: 6000 });
+        toast.success(defaultSuccessBody(label), { duration: 6000 });
       }
     } else {
       toast.success(custom ?? defaultSuccessBody(label));

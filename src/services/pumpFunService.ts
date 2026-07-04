@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { env } from '../config/env';
 import { ipfsToHttp } from './ipfsService';
 
 const PUMP_API = '/api/pump';
@@ -154,7 +153,6 @@ export async function getTrendingCoins(params?: {
   }
 
   const headers: Record<string, string> = { Accept: 'application/json' };
-  if (env.pumpfunAuth) headers.Authorization = `Bearer ${env.pumpfunAuth}`;
 
   const sortV3 = sortForV3Search(sort);
   const searchParams = new URLSearchParams({
@@ -232,7 +230,6 @@ export async function getTrendingCoins(params?: {
  */
 export async function getCoinDetails(mint: string): Promise<PumpFunCoin | null> {
   const headers: Record<string, string> = { Accept: 'application/json' };
-  if (env.pumpfunAuth) headers.Authorization = `Bearer ${env.pumpfunAuth}`;
 
   const enc = encodeURIComponent(mint);
   const urls = [
