@@ -1077,6 +1077,69 @@ export default function Liquidity({
     })();
   }, [refreshUserPools, loadWalletTokens]);
 
+  const setWalletTokenUiAmountOptimistically = useCallback(
+    (
+      mint: string,
+      nextAmount: Decimal.Value,
+      fallback?: Partial<Pick<WalletTokenOption, 'symbol' | 'name' | 'imageUrl' | 'decimals' | 'isVirtual'>>,
+    ) => {
+      if (!publicKey) return;
+      const next = Decimal.max(new Decimal(nextAmount), new Decimal(0));
+      setWalletTokens((prev) => {
+        const existing = prev.find((token) => token.mint === mint);
+        if (next.lte(0)) {
+          return prev.filter((token) => token.mint !== mint);
+        }
+
+        const nextUiAmount = next.toNumber();
+        if (existing) {
+          const updated = prev.map((token) =>
+            token.mint === mint ? { ...token, uiAmount: nextUiAmount } : token,
+          );
+          updated.sort((a, b) => b.uiAmount - a.uiAmount);
+          return updated;
+        }
+
+        const symbol = fallback?.symbol?.trim() || mint.slice(0, 4);
+        const name = fallback?.name?.trim() || symbol;
+        const added: WalletTokenOption = {
+          mint,
+          symbol,
+          name,
+          label: `${symbol} · ${mint.slice(0, 4)}…${mint.slice(-4)}`,
+          uiAmount: nextUiAmount,
+          imageUrl: fallback?.imageUrl ?? null,
+          decimals: fallback?.decimals,
+          isVirtual: fallback?.isVirtual,
+        };
+        const updated = [...prev, added];
+        updated.sort((a, b) => b.uiAmount - a.uiAmount);
+        return updated;
+      });
+
+      if (selectedMint === mint && next.lte(0)) {
+        setSelectedMint(null);
+      }
+
+      if (localTokenByMint.has(mint)) {
+        setUserTokenWalletBalance(publicKey.toBase58(), mint, decimalToUiStorage(next));
+      }
+    },
+    [localTokenByMint, publicKey, selectedMint, setUserTokenWalletBalance],
+  );
+
+  const adjustWalletTokenUiAmountOptimistically = useCallback(
+    (
+      mint: string,
+      deltaAmount: Decimal.Value,
+      fallback?: Partial<Pick<WalletTokenOption, 'symbol' | 'name' | 'imageUrl' | 'decimals' | 'isVirtual'>>,
+    ) => {
+      const current = walletTokens.find((token) => token.mint === mint)?.uiAmount ?? 0;
+      setWalletTokenUiAmountOptimistically(mint, new Decimal(current).plus(new Decimal(deltaAmount)), fallback);
+    },
+    [setWalletTokenUiAmountOptimistically, walletTokens],
+  );
+
   const [poolMintImages, setPoolMintImages] = useState<Record<string, string | null>>({});
   const [poolTokenMeta, setPoolTokenMeta] = useState<Record<string, { name: string; symbol: string }>>({});
 
@@ -1346,10 +1409,11 @@ export default function Liquidity({
             displaySolUi,
             displayMemeUi,
           });
-          if (isPreviewToken) {
-            const remainingUi = Decimal.max(new Decimal(selected.uiAmount).minus(baseDec), new Decimal(0));
-            setUserTokenWalletBalance(publicKey.toBase58(), selectedMint, decimalToUiStorage(remainingUi));
-          }
+          setWalletTokenUiAmountOptimistically(
+            selectedMint,
+            Decimal.max(new Decimal(selected.uiAmount).minus(baseDec), new Decimal(0)),
+            selected,
+          );
           refreshLiquidityViewsInBackground();
           return { signature: sig };
         },
@@ -1410,6 +1474,11 @@ export default function Liquidity({
             txSignature: res.txSignature,
             feeBps: METEORA_POOL_SWAP_FEE_BPS,
           });
+          setWalletTokenUiAmountOptimistically(
+            selectedMint,
+            Decimal.max(new Decimal(selected.uiAmount).minus(baseDec), new Decimal(0)),
+            selected,
+          );
           refreshLiquidityViewsInBackground();
           return { signature: res.txSignature };
         },
@@ -1460,6 +1529,11 @@ export default function Liquidity({
                       txSignature: res.txSignature,
                       feeBps: METEORA_POOL_SWAP_FEE_BPS,
                     });
+                    setWalletTokenUiAmountOptimistically(
+                      selectedMint,
+                      Decimal.max(new Decimal(selected.uiAmount).minus(baseDec), new Decimal(0)),
+                      selected,
+                    );
                     refreshLiquidityViewsInBackground();
                     return { signature: res.txSignature };
                   },
@@ -1515,11 +1589,19 @@ export default function Liquidity({
             if (localToken?.isVirtual) {
               const currentUi = new Decimal(localTokenBalanceUi(localToken));
               const refundUi = new Decimal(storedRow.displayMemeUi ?? 0);
-              setUserTokenWalletBalance(
-                publicKey.toBase58(),
-                storedRow.baseTokenMint,
-                decimalToUiStorage(currentUi.plus(refundUi)),
-              );
+              setWalletTokenUiAmountOptimistically(storedRow.baseTokenMint, currentUi.plus(refundUi), {
+                symbol: localToken.symbol,
+                name: localToken.name,
+                imageUrl: localToken.imageUri || null,
+                decimals: localToken.decimals,
+                isVirtual: localToken.isVirtual,
+              });
+            } else {
+              adjustWalletTokenUiAmountOptimistically(storedRow.baseTokenMint, storedRow.displayMemeUi ?? 0, {
+                symbol: storedRow.baseTokenSymbol,
+                name: storedRow.baseTokenName,
+                imageUrl: storedRow.baseTokenImageUrl ?? null,
+              });
             }
           }
           removeMeteoraPoolFromStorage(publicKey.toBase58(), pool.poolId);
@@ -1569,6 +1651,15 @@ export default function Liquidity({
         if (res.fullyClosed) {
           removeMeteoraPoolFromStorage(publicKey.toBase58(), pool.poolId);
         }
+        adjustWalletTokenUiAmountOptimistically(
+          pool.baseMint,
+          new Decimal(pool.baseAmount || '0').mul(pctInt).div(100),
+          {
+            symbol: pool.baseSymbol,
+            name: poolTokenMeta[pool.baseMint]?.name ?? pool.baseSymbol,
+            imageUrl: poolMintImages[pool.baseMint] ?? null,
+          },
+        );
         refreshLiquidityViewsInBackground();
         return { signature: res.signature };
       });
@@ -1610,6 +1701,15 @@ export default function Liquidity({
         lpAmountRaw: rawToBurn.toString(10),
         slippagePercent: slip,
       });
+      adjustWalletTokenUiAmountOptimistically(
+        pool.baseMint,
+        new Decimal(pool.baseAmount || '0').mul(pctInt).div(100),
+        {
+          symbol: pool.baseSymbol,
+          name: poolTokenMeta[pool.baseMint]?.name ?? pool.baseSymbol,
+          imageUrl: poolMintImages[pool.baseMint] ?? null,
+        },
+      );
       refreshLiquidityViewsInBackground();
       return { signature: res.signature };
     });
