@@ -313,8 +313,8 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
       }, {
         successMessage: (result: { confirmed?: boolean }) =>
           result.confirmed
-            ? 'Trending token created'
-            : 'Trending token submitted. Network confirmation may take a few more seconds.',
+            ? 'Token created'
+            : 'Token submitted. Network confirmation may take a few more seconds.',
       });
     } catch {
       /* toast handled */

@@ -10,6 +10,10 @@ import { useVisibilityAwareInterval } from './useVisibilityAwareInterval';
 /** Include localStorage Meteora rows not yet visible on-chain (brief RPC lag after create). */
 const METEORA_STORAGE_FALLBACK_MS = 3 * 60 * 1000;
 
+function sortUserPools(pools: UserPoolPosition[]): UserPoolPosition[] {
+  return [...pools].sort((a, b) => b.totalUsdValue - a.totalUsdValue);
+}
+
 export function useRaydium() {
   const { connection } = useConnection();
   const wallet = useWallet();
@@ -27,8 +31,18 @@ export function useRaydium() {
         const meteoraStoredCards = meteoraStoredRows.map(storedMeteoraPoolToUserPoolPosition);
 
         if (!wallet.publicKey) {
+          setUserPools(meteoraStoredCards);
           setUserPools(await enrichMeteoraPoolSymbols(connection, meteoraStoredCards));
           return;
+        }
+
+        if (meteoraStoredCards.length > 0) {
+          setUserPools((prev) =>
+            sortUserPools([
+              ...meteoraStoredCards,
+              ...prev.filter((pool) => !pool.isMeteoraPool),
+            ]),
+          );
         }
 
         const [meteoraChain, raydium] = await Promise.all([
@@ -55,9 +69,7 @@ export function useRaydium() {
         }
 
         const meteoraCards = await enrichMeteoraPoolSymbols(connection, [...byLpMint.values()]);
-        const combined = [...meteoraCards, ...raydium];
-        combined.sort((a, b) => b.totalUsdValue - a.totalUsdValue);
-        setUserPools(combined);
+        setUserPools(sortUserPools([...meteoraCards, ...raydium]));
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load pools');
       } finally {
