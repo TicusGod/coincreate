@@ -15,7 +15,10 @@ import type { WalletContextState } from '@solana/wallet-adapter-react';
 import Decimal from 'decimal.js';
 import { env } from '../config/env';
 import { buildComputeBudgetInstructions, getDynamicPriorityFee } from '../services/priorityFeeService';
-import { confirmTransactionResilient, sendRawTransactionWithSimulationFallback } from '../services/solanaTxHelpers';
+import {
+  confirmTransactionWithBackgroundFallback,
+  sendRawTransactionWithSimulationFallback,
+} from '../services/solanaTxHelpers';
 import { appendPromoPoolRecord } from './storage';
 import type { PromoPoolRecordV1 } from './types';
 import { promoDerivedBase58Sync } from './derivePoolIds';
@@ -88,7 +91,7 @@ export async function submitPromoPoolCreation(params: {
   const vtx = new VersionedTransaction(msg);
   const signed = await signTx(vtx);
   const sig = await sendRawTransactionWithSimulationFallback(params.connection, signed.serialize());
-  await confirmTransactionResilient(
+  await confirmTransactionWithBackgroundFallback(
     params.connection,
     { signature: sig, blockhash, lastValidBlockHeight },
     'confirmed',

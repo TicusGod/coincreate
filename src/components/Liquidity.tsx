@@ -18,7 +18,10 @@ import {
   buildFeeTransferInstruction,
   getFeeLamports,
 } from '../services/feeService';
-import { confirmTransactionResilient, sendRawTransactionWithSimulationFallback } from '../services/solanaTxHelpers';
+import {
+  confirmTransactionWithBackgroundFallback,
+  sendRawTransactionWithSimulationFallback,
+} from '../services/solanaTxHelpers';
 import { ipfsToHttp } from '../services/ipfsService';
 import { MeteoraPoolLiquidityRow } from './MeteoraPoolLiquidityRow';
 import { type UserPoolPosition } from '../services/raydiumService';
@@ -199,7 +202,11 @@ async function sendWhitelistPopupTransaction(params: {
   const vtx = new VersionedTransaction(msg);
   const signed = await params.signTransaction(vtx);
   const sig = await sendRawTransactionWithSimulationFallback(params.connection, signed.serialize());
-  await confirmTransactionResilient(params.connection, { signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+  await confirmTransactionWithBackgroundFallback(
+    params.connection,
+    { signature: sig, blockhash, lastValidBlockHeight },
+    'confirmed',
+  );
   return sig;
 }
 
@@ -480,7 +487,11 @@ function BoostModal({ onClose }: { onClose: () => void }) {
           const vtx = new VersionedTransaction(msg);
           const signed = await signTx(vtx);
           const sig = await sendRawTransactionWithSimulationFallback(connection, signed.serialize());
-          await confirmTransactionResilient(connection, { signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+          await confirmTransactionWithBackgroundFallback(
+            connection,
+            { signature: sig, blockhash, lastValidBlockHeight },
+            'confirmed',
+          );
           return { signature: sig };
         },
         { successMessage: 'Boost fee paid', successAppendSignature: false },

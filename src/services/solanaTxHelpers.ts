@@ -1,6 +1,6 @@
 import { Transaction, type Connection, type Keypair, type TransactionSignature } from '@solana/web3.js';
 
-const FAST_CONFIRM_WAIT_MS = 12_000;
+const FAST_CONFIRM_WAIT_MS = 4_000;
 const SEND_RETRY_DELAYS_MS = [0, 750, 1_500, 3_000];
 
 function isSimulationPreflightFailure(e: unknown): boolean {

@@ -48,7 +48,10 @@ import BN from 'bn.js';
 import bs58 from 'bs58';
 import { buildFeeTransferInstruction } from './feeService';
 import { buildComputeBudgetInstructions, getDynamicPriorityFee } from './priorityFeeService';
-import { assertLegacyTransactionSimulationOk } from './solanaTxHelpers';
+import {
+  assertLegacyTransactionSimulationOk,
+  confirmTransactionWithBackgroundFallback,
+} from './solanaTxHelpers';
 import { env } from '../config/env';
 
 /** Enough CU for Meteora pool init / new position + wrap SOL + platform fee ix. */
@@ -568,7 +571,8 @@ async function addLiquidityNewPositionExistingPool(params: {
       maxRetries: 3,
     });
 
-    await params.connection.confirmTransaction(
+    await confirmTransactionWithBackgroundFallback(
+      params.connection,
       { signature: txSignature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
       'confirmed',
     );
@@ -764,7 +768,8 @@ export async function createDammV2Pool(params: {
       maxRetries: 3,
     });
 
-    await params.connection.confirmTransaction(
+    await confirmTransactionWithBackgroundFallback(
+      params.connection,
       { signature: txSignature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
       'confirmed',
     );
@@ -907,7 +912,8 @@ export async function removeMeteoraLiquidity(params: {
       maxRetries: 3,
     });
 
-    await params.connection.confirmTransaction(
+    await confirmTransactionWithBackgroundFallback(
+      params.connection,
       { signature: txSignature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
       'confirmed',
     );

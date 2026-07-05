@@ -528,7 +528,7 @@ async function executeV0WithPlatformFeeGuard(
     });
   }
   const rebuilt = await built.builder.buildV0({});
-  const { txId } = await rebuilt.execute({ sendAndConfirm: true });
+  const { txId } = await rebuilt.execute({ sendAndConfirm: false });
   return txId;
 }
 
