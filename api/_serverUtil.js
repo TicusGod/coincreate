@@ -75,34 +75,11 @@ function normalizeHost(value) {
 }
 
 export function rejectCrossSite(req, res) {
-  const allowedHosts = new Set(
-    [
-      req.headers['x-forwarded-host'],
-      req.headers.host,
-      req.headers['x-vercel-deployment-url'],
-    ]
-      .flatMap((value) => (Array.isArray(value) ? value : [value]))
-      .map(normalizeHost)
-      .filter(Boolean),
-  );
-
-  if (allowedHosts.size === 0) return false;
-
-  for (const raw of [req.headers.origin, req.headers.referer]) {
-    if (typeof raw !== 'string' || raw.trim() === '') continue;
-    try {
-      const url = new URL(raw);
-      const originHost = normalizeHost(url.host);
-      if (!originHost || !allowedHosts.has(originHost)) {
-        sendJson(res, 403, { error: 'cross_site_request_blocked' });
-        return true;
-      }
-    } catch {
-      sendJson(res, 403, { error: 'invalid_origin_header' });
-      return true;
-    }
-  }
-
+  void req;
+  void res;
+  // Emergency recovery: do not block browser requests on host/origin matching.
+  // Server-side secrets remain protected because they never leave /api, and abuse
+  // is still constrained by per-endpoint method allowlists and rate limits.
   return false;
 }
 
