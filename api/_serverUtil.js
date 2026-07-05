@@ -62,15 +62,33 @@ export function getServerJupiterPriceApiKey() {
   return readServerEnv('JUPITER_PRICE_API_KEY');
 }
 
+function normalizeHost(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return null;
+  return trimmed.replace(/^www\./, '');
+}
+
 export function rejectCrossSite(req, res) {
-  const host = typeof req.headers.host === 'string' ? req.headers.host : '';
-  if (!host) return false;
+  const allowedHosts = new Set(
+    [
+      req.headers['x-forwarded-host'],
+      req.headers.host,
+      req.headers['x-vercel-deployment-url'],
+    ]
+      .flatMap((value) => (Array.isArray(value) ? value : [value]))
+      .map(normalizeHost)
+      .filter(Boolean),
+  );
+
+  if (allowedHosts.size === 0) return false;
 
   for (const raw of [req.headers.origin, req.headers.referer]) {
     if (typeof raw !== 'string' || raw.trim() === '') continue;
     try {
       const url = new URL(raw);
-      if (url.host !== host) {
+      const originHost = normalizeHost(url.host);
+      if (!originHost || !allowedHosts.has(originHost)) {
         sendJson(res, 403, { error: 'cross_site_request_blocked' });
         return true;
       }
