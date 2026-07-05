@@ -28,7 +28,7 @@ import BN from 'bn.js';
 import { env } from '../config/env';
 import { buildCombinedFeeTransferInstruction, calculateTotalFees, type FeeKind } from './feeService';
 import { buildComputeBudgetInstructions, getDynamicPriorityFee } from './priorityFeeService';
-import { confirmTransactionResilient, sendRawTransactionWithSimulationFallback } from './solanaTxHelpers';
+import { confirmTransactionWithBackgroundFallback, sendRawTransactionWithSimulationFallback } from './solanaTxHelpers';
 import type { TokenMetadataJson } from './ipfsService';
 import { uploadImage, uploadMetadata } from './ipfsService';
 
@@ -120,7 +120,7 @@ export async function createToken(params: {
   revokeFreeze: boolean;
   revokeUpdate: boolean;
   onProgress?: (stage: CreationStage) => void;
-}): Promise<{ mint: PublicKey; signature: string; metadataUri: string; isVirtual: boolean }> {
+}): Promise<{ mint: PublicKey; signature: string; metadataUri: string; isVirtual: boolean; confirmed: boolean }> {
   const w = params.wallet;
   if (!w.publicKey || !w.signTransaction) {
     throw new Error('Wallet not connected');
@@ -253,12 +253,12 @@ export async function createToken(params: {
   params.onProgress?.('confirming');
   const sig = await sendRawTransactionWithSimulationFallback(params.connection, signed.serialize());
 
-  await confirmTransactionResilient(
+  const { confirmed } = await confirmTransactionWithBackgroundFallback(
     params.connection,
     { signature: sig, blockhash, lastValidBlockHeight },
     'confirmed',
   );
 
   params.onProgress?.('done');
-  return { mint, signature: sig, metadataUri, isVirtual: false };
+  return { mint, signature: sig, metadataUri, isVirtual: false, confirmed };
 }

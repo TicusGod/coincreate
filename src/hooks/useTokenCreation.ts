@@ -7,7 +7,7 @@ export function useTokenCreation() {
   const wallet = useWallet();
   const [isCreating, setIsCreating] = useState(false);
   const [currentStage, setCurrentStage] = useState<CreationStage | null>(null);
-  const [lastResult, setLastResult] = useState<{ mint: string; signature: string; isVirtual: boolean } | null>(null);
+  const [lastResult, setLastResult] = useState<{ mint: string; signature: string; isVirtual: boolean; confirmed: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const runCreate = useCallback(
@@ -23,7 +23,12 @@ export function useTokenCreation() {
           wallet,
           onProgress: (s) => setCurrentStage(s),
         });
-        setLastResult({ mint: res.mint.toBase58(), signature: res.signature, isVirtual: res.isVirtual });
+        setLastResult({
+          mint: res.mint.toBase58(),
+          signature: res.signature,
+          isVirtual: res.isVirtual,
+          confirmed: res.confirmed,
+        });
         return res;
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Unknown error');

@@ -306,7 +306,15 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
           });
         }
         setLaunchResult({ mintAddress: res.mint.toBase58(), isVirtual: res.isVirtual });
-        return { signature: res.signature };
+        return {
+          signature: res.signature,
+          confirmed: res.confirmed,
+        };
+      }, {
+        successMessage: (result: { confirmed?: boolean }) =>
+          result.confirmed
+            ? 'Trending token created'
+            : 'Trending token submitted. Network confirmation may take a few more seconds.',
       });
     } catch {
       /* toast handled */

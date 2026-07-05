@@ -1,5 +1,7 @@
 import { Transaction, type Connection, type Keypair, type TransactionSignature } from '@solana/web3.js';
 
+const FAST_CONFIRM_WAIT_MS = 12_000;
+
 function isSimulationPreflightFailure(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e);
   return /simulation failed/i.test(msg);
@@ -98,4 +100,42 @@ export async function confirmTransactionResilient(
   }
 
   throw new Error('Confirmation timed out');
+}
+
+/**
+ * Wait briefly for confirmation, then continue in the background so UX is not blocked by slow RPC confirmation.
+ * Throws only on an explicit on-chain failure during the bounded wait window.
+ */
+export async function confirmTransactionWithBackgroundFallback(
+  connection: Connection,
+  strategy: { signature: string; blockhash: string; lastValidBlockHeight: number },
+  commitment: 'confirmed' | 'finalized' = 'confirmed',
+  maxWaitMs = FAST_CONFIRM_WAIT_MS,
+): Promise<{ confirmed: boolean }> {
+  let finished = false;
+  const confirmPromise = confirmTransactionResilient(connection, strategy, commitment)
+    .then(() => {
+      finished = true;
+    })
+    .catch((error) => {
+      finished = true;
+      throw error;
+    });
+
+  const outcome = await Promise.race([
+    confirmPromise.then(() => 'confirmed' as const),
+    new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), maxWaitMs)),
+  ]);
+
+  if (outcome === 'confirmed') {
+    return { confirmed: true };
+  }
+
+  if (!finished) {
+    void confirmPromise.catch((error) => {
+      console.warn('[confirmTransactionWithBackgroundFallback] background confirmation failed', error);
+    });
+  }
+
+  return { confirmed: false };
 }
