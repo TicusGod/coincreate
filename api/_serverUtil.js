@@ -23,6 +23,11 @@ function readServerEnv(name) {
   return raw == null || String(raw).trim() === '' ? undefined : String(raw).trim();
 }
 
+const PUBLIC_RPC_URLS = {
+  'mainnet-beta': 'https://api.mainnet-beta.solana.com',
+  devnet: 'https://api.devnet.solana.com',
+};
+
 export function requireHttpsUrlEnv(name) {
   const value = readServerEnv(name);
   if (!value) {
@@ -39,9 +44,11 @@ export function requireHttpsUrlEnv(name) {
 }
 
 export function getServerRpcUrl(network) {
-  if (network === 'mainnet-beta') return requireHttpsUrlEnv('SOLANA_RPC_URL_MAINNET');
-  if (network === 'devnet') return requireHttpsUrlEnv('SOLANA_RPC_URL_DEVNET');
-  throw new Error(`Unsupported Solana network: ${network}`);
+  const url = PUBLIC_RPC_URLS[network];
+  if (!url) {
+    throw new Error(`Unsupported Solana network: ${network}`);
+  }
+  return url;
 }
 
 export function getServerPinataJwt() {
