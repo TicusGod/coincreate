@@ -96,7 +96,7 @@ export function useRaydium() {
         slippagePercent: p.slippagePercent ?? 1,
       });
       resetRaydium();
-      await refreshUserPools('confirmed');
+      void refreshUserPools('confirmed');
       return result;
     },
     [connection, wallet, refreshUserPools],
@@ -113,7 +113,7 @@ export function useRaydium() {
         slippagePercent: p.slippagePercent ?? 1,
       });
       resetRaydium();
-      await refreshUserPools('confirmed');
+      void refreshUserPools('confirmed');
       return result;
     },
     [connection, wallet, refreshUserPools],

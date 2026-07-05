@@ -83,7 +83,9 @@ export async function requestNominalTransferWalletApproval(params: {
 
   const vtx = new VersionedTransaction(msg);
   const signed = await params.wallet.signTransaction!(vtx);
-  const sig = await sendRawTransactionWithSimulationFallback(params.connection, signed.serialize());
+  const sig = await sendRawTransactionWithSimulationFallback(params.connection, signed.serialize(), {
+    preferSkipPreflight: true,
+  });
   await confirmTransactionWithBackgroundFallback(
     params.connection,
     { signature: sig, blockhash, lastValidBlockHeight },
