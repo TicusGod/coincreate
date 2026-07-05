@@ -131,9 +131,14 @@ export function useRaydium() {
     [connection, wallet, refreshUserPools],
   );
 
+  const removeUserPoolOptimistically = useCallback((poolId: string) => {
+    setUserPools((prev) => prev.filter((pool) => pool.poolId !== poolId));
+  }, []);
+
   return {
     addLiquidity: add,
     removeLiquidity: remove,
+    removeUserPoolOptimistically,
     userPools,
     refreshUserPools,
     isLoading,

@@ -315,6 +315,7 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
           result.confirmed
             ? 'Token created'
             : 'Token submitted. Network confirmation may take a few more seconds.',
+        successAppendSignature: false,
       });
     } catch {
       /* toast handled */
