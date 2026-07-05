@@ -21,13 +21,17 @@ export default async function pinataJsonProxy(req, res) {
   if (rejectCrossSite(req, res)) return;
 
   const limited = takeRateLimit(req, 'pinata:json', {
-    limit: 120,
+    limit: 20,
     windowMs: 60_000,
-    cost: 2,
+    cost: 4,
   });
   if (!limited.ok) {
     res.setHeader('Retry-After', String(limited.retryAfterSeconds));
     return sendJson(res, 429, { error: 'rate_limited', retryAfter: limited.retryAfterSeconds });
+  }
+
+  if (!String(req.headers['content-type'] || '').toLowerCase().includes('application/json')) {
+    return sendJson(res, 415, { error: 'unsupported_media_type' });
   }
 
   let rawBody;

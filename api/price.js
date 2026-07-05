@@ -1,5 +1,6 @@
 import {
   getServerJupiterPriceApiKey,
+  parseCommaSeparatedValues,
   getServerPriceApi,
   relayUpstreamResponse,
   rejectCrossSite,
@@ -15,7 +16,7 @@ export default async function priceProxy(req, res) {
   if (rejectCrossSite(req, res)) return;
 
   const limited = takeRateLimit(req, 'price', {
-    limit: 1200,
+    limit: 600,
     windowMs: 60_000,
     cost: 1,
   });
@@ -24,13 +25,23 @@ export default async function priceProxy(req, res) {
     return sendJson(res, 429, { error: 'rate_limited', retryAfter: limited.retryAfterSeconds });
   }
 
-  const ids = typeof req.query.ids === 'string' ? req.query.ids : Array.isArray(req.query.ids) ? req.query.ids.join(',') : '';
-  if (!ids.trim()) {
+  const rawIds = typeof req.query.ids === 'string' ? req.query.ids : Array.isArray(req.query.ids) ? req.query.ids.join(',') : '';
+  let ids;
+  try {
+    ids = parseCommaSeparatedValues(rawIds, { maxItems: 100, maxLengthPerItem: 64 });
+  } catch (error) {
+    return sendJson(res, 400, {
+      error: 'invalid_ids',
+      message: error instanceof Error ? error.message : 'Invalid ids query',
+    });
+  }
+
+  if (ids.length === 0) {
     return sendJson(res, 400, { error: 'missing_ids' });
   }
 
   const upstreamUrl = new URL(getServerPriceApi());
-  upstreamUrl.searchParams.set('ids', ids);
+  upstreamUrl.searchParams.set('ids', ids.join(','));
 
   let apiKey;
   try {

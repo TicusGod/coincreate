@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { ipfsToHttp } from './ipfsService';
+import { getApiProxyHeaders } from './apiProxy';
 
 const PUMP_API = '/api/pump';
 
@@ -103,7 +104,10 @@ async function pumpGet(url: string, headers: Record<string, string>): Promise<un
     console.warn(`[PUMP] request URL: ${url}`);
   }
   try {
-    const res = await axios.get<unknown>(url, { headers, timeout: 10_000 });
+    const res = await axios.get<unknown>(url, {
+      headers: getApiProxyHeaders(headers),
+      timeout: 10_000,
+    });
     if (import.meta.env.DEV) {
       console.warn(`[PUMP] response status: ${res.status}`);
     }

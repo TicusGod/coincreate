@@ -11,6 +11,7 @@ import {
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
 import { useEffect, useMemo } from 'react';
 import { env } from '../config/env';
+import { API_PROXY_HEADER_NAME, API_PROXY_HEADER_VALUE } from '../services/apiProxy';
 
 import '@solana/wallet-adapter-react-ui/styles.css';
 
@@ -43,7 +44,15 @@ export default function SolanaWalletProvider({ children }: { children: React.Rea
   );
 
   return (
-    <ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>
+    <ConnectionProvider
+      endpoint={endpoint}
+      config={{
+        commitment: 'confirmed',
+        httpHeaders: {
+          [API_PROXY_HEADER_NAME]: API_PROXY_HEADER_VALUE,
+        },
+      }}
+    >
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
           <WalletModalCloseWhenConnected />
