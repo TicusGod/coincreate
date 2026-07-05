@@ -65,7 +65,12 @@ export default function App() {
             onInitialSelectConsumed={clearLiquidityInitialMint}
           />
         ) : (
-          <CopyTrending />
+          <CopyTrending
+            onGoToLiquidity={(mint) => {
+              setLiquidityInitialMint(mint);
+              setCurrentPage('liquidity');
+            }}
+          />
         )}
       </main>
     </div>
