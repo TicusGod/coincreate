@@ -21,13 +21,17 @@ export default async function pinataFileProxy(req, res) {
   if (rejectCrossSite(req, res)) return;
 
   const limited = takeRateLimit(req, 'pinata:file', {
-    limit: 60,
+    limit: 10,
     windowMs: 60_000,
-    cost: 5,
+    cost: 10,
   });
   if (!limited.ok) {
     res.setHeader('Retry-After', String(limited.retryAfterSeconds));
     return sendJson(res, 429, { error: 'rate_limited', retryAfter: limited.retryAfterSeconds });
+  }
+
+  if (!String(req.headers['content-type'] || '').toLowerCase().includes('multipart/form-data')) {
+    return sendJson(res, 415, { error: 'unsupported_media_type' });
   }
 
   let rawBody;

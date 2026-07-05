@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { env } from '../config/env';
+import { getApiProxyHeaders } from './apiProxy';
 
 export type TokenMetadataJson = {
   name: string;
@@ -56,7 +57,7 @@ export async function uploadImage(file: File): Promise<string> {
     '/api/pinata/file',
     form,
     {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: getApiProxyHeaders({ 'Content-Type': 'multipart/form-data' }),
       timeout: PINATA_UPLOAD_TIMEOUT_MS,
     },
   );
@@ -71,7 +72,7 @@ export async function uploadMetadata(json: TokenMetadataJson): Promise<string> {
     '/api/pinata/json',
     { pinataContent: json, pinataMetadata: { name: `${json.symbol}-metadata` } },
     {
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiProxyHeaders({ 'Content-Type': 'application/json' }),
       timeout: PINATA_UPLOAD_TIMEOUT_MS,
     },
   );

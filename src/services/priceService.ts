@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getApiProxyHeaders } from './apiProxy';
 
 const CACHE_MS = 30_000;
 const cache = new Map<string, { price: number; at: number }>();
@@ -48,6 +49,7 @@ function parsePricePayload(data: unknown, mints: string[]): Record<string, numbe
 async function fetchBatch(mints: string[]): Promise<Record<string, number>> {
   if (mints.length === 0) return {};
   const { data } = await axios.get<unknown>('/api/price', {
+    headers: getApiProxyHeaders(),
     timeout: 10_000,
     params: { ids: mints.join(',') },
   });

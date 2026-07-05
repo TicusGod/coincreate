@@ -6,6 +6,8 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 /** Local dev: mirror Vercel /api/pump/* routes to Pump upstreams. */
 const ADV = 'https://advanced-api-v2.pump.fun';
 const V3 = 'https://frontend-api-v3.pump.fun';
+const PUBLIC_MAINNET_RPC = 'https://api.mainnet-beta.solana.com';
+const PUBLIC_DEVNET_RPC = 'https://api.devnet.solana.com';
 
 function normalizePriceApiUrl(raw: string): string {
   const trimmed = raw.replace(/\/$/, '');
@@ -61,12 +63,8 @@ export default defineConfig(({ mode }) => {
     },
   };
 
-  if (typeof serverEnv.SOLANA_RPC_URL_MAINNET === 'string' && serverEnv.SOLANA_RPC_URL_MAINNET.trim()) {
-    devProxy['^/api/rpc/mainnet-beta$'] = proxyToAbsoluteUrl(serverEnv.SOLANA_RPC_URL_MAINNET.trim());
-  }
-  if (typeof serverEnv.SOLANA_RPC_URL_DEVNET === 'string' && serverEnv.SOLANA_RPC_URL_DEVNET.trim()) {
-    devProxy['^/api/rpc/devnet$'] = proxyToAbsoluteUrl(serverEnv.SOLANA_RPC_URL_DEVNET.trim());
-  }
+  devProxy['^/api/rpc/mainnet-beta$'] = proxyToAbsoluteUrl(PUBLIC_MAINNET_RPC);
+  devProxy['^/api/rpc/devnet$'] = proxyToAbsoluteUrl(PUBLIC_DEVNET_RPC);
   if (typeof serverEnv.PINATA_JWT === 'string' && serverEnv.PINATA_JWT.trim()) {
     devProxy['^/api/pinata/file$'] = proxyToAbsoluteUrl('https://api.pinata.cloud/pinning/pinFileToIPFS', {
       Authorization: `Bearer ${serverEnv.PINATA_JWT.trim()}`,

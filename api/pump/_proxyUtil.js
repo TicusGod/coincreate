@@ -1,6 +1,8 @@
 /**
  * Shared Pump.fun upstream proxy helpers as ESM `.js` — Vercel only globs `.js`/`.mjs`/`.ts` under `/api`.
  */
+import { getServerPumpfunAuth, relayUpstreamResponse, sendJson, setNoStore } from '../_serverUtil.js';
+
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
@@ -22,22 +24,17 @@ export function buildQs(queryObj, omitKeys = []) {
 }
 
 export async function forwardPumpGet(upstreamUrl, req, res) {
+  setNoStore(res);
   const headers = {
     Accept: 'application/json',
     'User-Agent': UA,
   };
-  if (typeof process.env.PUMPFUN_AUTH === 'string' && process.env.PUMPFUN_AUTH.trim()) {
-    headers.Authorization = `Bearer ${process.env.PUMPFUN_AUTH.trim()}`;
-  } else if (typeof req.headers.authorization === 'string') {
-    headers.Authorization = req.headers.authorization;
-  }
+  const auth = getServerPumpfunAuth();
+  if (auth) headers.Authorization = `Bearer ${auth}`;
   try {
-    const r = await fetch(upstreamUrl, { method: 'GET', headers, redirect: 'follow' });
-    const body = Buffer.from(await r.arrayBuffer());
-    res.setHeader('Content-Type', 'application/json');
-    res.status(r.status).send(body);
+    const upstream = await fetch(upstreamUrl, { method: 'GET', headers, redirect: 'follow' });
+    return await relayUpstreamResponse(res, upstream);
   } catch {
-    res.setHeader('Content-Type', 'application/json');
-    res.status(502).json({ error: 'pump_upstream_failed' });
+    return sendJson(res, 502, { error: 'pump_upstream_failed' });
   }
 }

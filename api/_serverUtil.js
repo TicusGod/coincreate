@@ -1,6 +1,11 @@
 const rateBuckets = globalThis.__createcoinRateBuckets ?? new Map();
 globalThis.__createcoinRateBuckets = rateBuckets;
 
+const SAME_ORIGIN_PROXY_HEADER = 'x-createcoin-proxy';
+const SAME_ORIGIN_PROXY_HEADER_VALUE = '1';
+const SAFE_FETCH_SITES = new Set(['same-origin', 'same-site', 'none']);
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+
 export function setNoStore(res) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -81,12 +86,92 @@ function normalizeHost(value) {
   }
 }
 
-export function rejectCrossSite(req, res) {
-  void req;
-  void res;
-  // Emergency recovery: do not block browser requests on host/origin matching.
-  // Server-side secrets remain protected because they never leave /api, and abuse
-  // is still constrained by per-endpoint method allowlists and rate limits.
+function firstHeaderValue(value) {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    const first = value.find((entry) => typeof entry === 'string' && entry.trim());
+    return typeof first === 'string' ? first : undefined;
+  }
+  return undefined;
+}
+
+function collectAllowedHosts(req) {
+  return new Set(
+    [
+      req.headers['x-forwarded-host'],
+      req.headers.host,
+      req.headers['x-vercel-deployment-url'],
+      process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    ]
+      .flatMap((value) => (Array.isArray(value) ? value : [value]))
+      .map(normalizeHost)
+      .filter(Boolean),
+  );
+}
+
+function extractSourceHosts(req) {
+  const hosts = [];
+
+  for (const raw of [req.headers.origin, req.headers.referer]) {
+    const value = firstHeaderValue(raw);
+    if (typeof value !== 'string' || value.trim() === '') continue;
+    try {
+      const url = new URL(value);
+      const host = normalizeHost(url.host);
+      if (!host) return { error: 'invalid_origin_header' };
+      hosts.push(host);
+    } catch {
+      return { error: 'invalid_origin_header' };
+    }
+  }
+
+  return { hosts };
+}
+
+export function rejectCrossSite(req, res, opts = {}) {
+  const {
+    requireProxyHeader = true,
+    requireSourceHeaders = true,
+  } = opts;
+
+  const proxyHeader = firstHeaderValue(req.headers[SAME_ORIGIN_PROXY_HEADER]);
+  if (requireProxyHeader && proxyHeader !== SAME_ORIGIN_PROXY_HEADER_VALUE) {
+    sendJson(res, 403, { error: 'missing_proxy_header' });
+    return true;
+  }
+
+  const secFetchSite = firstHeaderValue(req.headers['sec-fetch-site'])?.trim().toLowerCase();
+  if (secFetchSite && !SAFE_FETCH_SITES.has(secFetchSite)) {
+    sendJson(res, 403, { error: 'cross_site_request_blocked' });
+    return true;
+  }
+
+  const allowedHosts = collectAllowedHosts(req);
+  if (allowedHosts.size === 0) return false;
+
+  const sourceHosts = extractSourceHosts(req);
+  if ('error' in sourceHosts) {
+    sendJson(res, 403, { error: sourceHosts.error });
+    return true;
+  }
+
+  if (sourceHosts.hosts.length === 0) {
+    const allLocal = [...allowedHosts].every((host) => LOCAL_HOSTS.has(host));
+    if (!requireSourceHeaders && allLocal) return false;
+    if (requireSourceHeaders) {
+      sendJson(res, 403, { error: 'missing_origin_header' });
+      return true;
+    }
+    return false;
+  }
+
+  for (const host of sourceHosts.hosts) {
+    if (!allowedHosts.has(host)) {
+      sendJson(res, 403, { error: 'cross_site_request_blocked' });
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -147,4 +232,38 @@ export async function relayUpstreamResponse(res, upstream) {
   if (retryAfter) res.setHeader('Retry-After', retryAfter);
 
   return res.status(upstream.status).send(body);
+}
+
+export function isValidBase58LikeAddress(value) {
+  return typeof value === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,64}$/.test(value);
+}
+
+export function parsePositiveInt(value, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : fallback;
+  if (!Number.isFinite(n)) return fallback;
+  const int = Math.trunc(n);
+  if (int < min || int > max) return fallback;
+  return int;
+}
+
+export function parseCommaSeparatedValues(value, { maxItems, maxLengthPerItem } = {}) {
+  if (typeof value !== 'string') return [];
+  const seen = new Set();
+  const out = [];
+
+  for (const raw of value.split(',')) {
+    const item = raw.trim();
+    if (!item) continue;
+    if (maxLengthPerItem && item.length > maxLengthPerItem) {
+      throw new Error(`Item exceeds ${maxLengthPerItem} characters`);
+    }
+    if (seen.has(item)) continue;
+    seen.add(item);
+    out.push(item);
+    if (maxItems && out.length > maxItems) {
+      throw new Error(`Too many items (max ${maxItems})`);
+    }
+  }
+
+  return out;
 }

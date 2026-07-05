@@ -30,11 +30,9 @@ const ALLOWED_RPC_METHODS = new Set([
   'getMinimumBalanceForRentExemption',
   'getMultipleAccounts',
   'getParsedAccountInfo',
-  'getParsedProgramAccounts',
   'getParsedTokenAccountsByOwner',
   'getParsedTransaction',
   'getProgramAccounts',
-  'getProgramAccountsV2',
   'getRecentPerformanceSamples',
   'getRecentPrioritizationFees',
   'getSignatureStatuses',
@@ -55,8 +53,6 @@ const ALLOWED_RPC_METHODS = new Set([
 
 const HEAVY_RPC_METHODS = new Set([
   'getProgramAccounts',
-  'getProgramAccountsV2',
-  'getParsedProgramAccounts',
   'getTokenAccountsByOwner',
   'getParsedTokenAccountsByOwner',
   'getMultipleAccounts',
@@ -64,9 +60,70 @@ const HEAVY_RPC_METHODS = new Set([
 ]);
 
 const TX_RPC_METHODS = new Set(['sendTransaction', 'simulateTransaction']);
+const MAX_RPC_BATCH_ITEMS = 20;
+const MAX_RPC_BODY_BYTES = 256 * 1024;
+
+function getConfigObject(row, index = 1) {
+  if (!Array.isArray(row.params)) return null;
+  const value = row.params[index];
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+function validateGetProgramAccounts(row) {
+  const config = getConfigObject(row, 1);
+  const filters = Array.isArray(config?.filters) ? config.filters : null;
+  if (!config || !filters || filters.length === 0 || filters.length > 8) {
+    throw new Error('getProgramAccounts requires 1-8 filters');
+  }
+  if (config.withContext === true) {
+    throw new Error('getProgramAccounts withContext is not allowed');
+  }
+  if (config.dataSlice && typeof config.dataSlice === 'object') {
+    const length = Number(config.dataSlice.length ?? 0);
+    if (!Number.isFinite(length) || length < 0 || length > 512) {
+      throw new Error('getProgramAccounts dataSlice.length must be between 0 and 512');
+    }
+  }
+}
+
+function validateGetMultipleAccounts(row) {
+  const keys = Array.isArray(row.params?.[0]) ? row.params[0] : null;
+  if (!keys || keys.length === 0 || keys.length > 100) {
+    throw new Error('getMultipleAccounts supports 1-100 addresses per call');
+  }
+}
+
+function validateGetSignaturesForAddress(row) {
+  const config = getConfigObject(row, 1);
+  const limit = Number(config?.limit ?? 1000);
+  if (!Number.isFinite(limit) || limit < 1 || limit > 100) {
+    throw new Error('getSignaturesForAddress limit must be between 1 and 100');
+  }
+}
+
+function validateRpcRows(rows) {
+  for (const row of rows) {
+    switch (row.method) {
+      case 'getProgramAccounts':
+        validateGetProgramAccounts(row);
+        break;
+      case 'getMultipleAccounts':
+        validateGetMultipleAccounts(row);
+        break;
+      case 'getSignaturesForAddress':
+        validateGetSignaturesForAddress(row);
+        break;
+      default:
+        break;
+    }
+  }
+}
 
 function extractRpcMethods(payload) {
   const rows = Array.isArray(payload) ? payload : [payload];
+  if (rows.length === 0 || rows.length > MAX_RPC_BATCH_ITEMS) {
+    throw new Error(`RPC batch must contain between 1 and ${MAX_RPC_BATCH_ITEMS} items`);
+  }
   const methods = [];
 
   for (const row of rows) {
@@ -99,9 +156,10 @@ export default async function rpcProxy(req, res) {
   let methods;
 
   try {
-    rawBody = await readRawBody(req, 2 * 1024 * 1024);
+    rawBody = await readRawBody(req, MAX_RPC_BODY_BYTES);
     payload = JSON.parse(rawBody.toString('utf8'));
     methods = extractRpcMethods(payload);
+    validateRpcRows(Array.isArray(payload) ? payload : [payload]);
   } catch (error) {
     return sendJson(res, 400, {
       error: 'invalid_rpc_payload',

@@ -83,7 +83,6 @@ function canUseHeliusV2(connection: Connection): boolean {
   try {
     const endpoint = connection.rpcEndpoint;
     if (typeof endpoint !== 'string') return false;
-    if (endpoint.includes('/api/rpc/')) return true;
     return new URL(endpoint).hostname.includes('helius');
   } catch {
     return false;
