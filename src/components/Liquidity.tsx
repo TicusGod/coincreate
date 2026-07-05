@@ -802,7 +802,7 @@ export default function Liquidity({
   const wallet = useWallet();
   const { publicKey, connected } = wallet;
   const { connect, solBalance } = useSolanaWallet();
-  const { removeLiquidity, userPools, refreshUserPools, isLoading } = useRaydium();
+  const { removeLiquidity, removeUserPoolOptimistically, userPools, refreshUserPools, isLoading } = useRaydium();
   const storedWalletTokens = useAppStore((s) =>
     publicKey ? (s.userTokensByWallet[publicKey.toBase58()] ?? EMPTY_CREATED_TOKENS) : EMPTY_CREATED_TOKENS,
   );
@@ -1605,6 +1605,7 @@ export default function Liquidity({
             }
           }
           removeMeteoraPoolFromStorage(publicKey.toBase58(), pool.poolId);
+          removeUserPoolOptimistically(pool.poolId);
           refreshLiquidityViewsInBackground();
           return { signature: sig };
         });
@@ -1650,6 +1651,7 @@ export default function Liquidity({
         });
         if (res.fullyClosed) {
           removeMeteoraPoolFromStorage(publicKey.toBase58(), pool.poolId);
+          removeUserPoolOptimistically(pool.poolId);
         }
         adjustWalletTokenUiAmountOptimistically(
           pool.baseMint,
@@ -1701,6 +1703,9 @@ export default function Liquidity({
         lpAmountRaw: rawToBurn.toString(10),
         slippagePercent: slip,
       });
+      if (pctInt >= 100) {
+        removeUserPoolOptimistically(pool.poolId);
+      }
       adjustWalletTokenUiAmountOptimistically(
         pool.baseMint,
         new Decimal(pool.baseAmount || '0').mul(pctInt).div(100),
@@ -1947,7 +1952,10 @@ export default function Liquidity({
                       tokenName={poolTokenMeta[p.baseMint]?.name}
                       onOpenBoost={() => setBoostModalOpen(true)}
                       onOpenRemove={() => setPoolForRemove(p)}
-                      onRemovedFromStorage={() => void refreshUserPools()}
+                      onRemovedFromStorage={() => {
+                        removeUserPoolOptimistically(p.poolId);
+                        void refreshUserPools();
+                      }}
                     />
                   );
                 }

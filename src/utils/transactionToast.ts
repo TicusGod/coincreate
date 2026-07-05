@@ -60,7 +60,7 @@ function defaultSuccessBody(label: string): string {
   if (low.includes('creating pool')) return `Pool transaction confirmed`;
   if (low.includes('adding liquidity')) return `Liquidity add confirmed`;
   if (low.includes('removing liquidity')) return `Liquidity removed`;
-  if (low.includes('copying trending')) return `Trending token created`;
+  if (low.includes('copying trending')) return `Token created`;
   return `Transaction confirmed`;
 }
 
