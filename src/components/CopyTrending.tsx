@@ -3,7 +3,6 @@ import toast from 'react-hot-toast';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { RefreshCw, Zap } from 'lucide-react';
-import LaunchSuccessModal from './LaunchSuccessModal';
 import { useSolanaWallet } from '../hooks/useSolanaWallet';
 import { useTrendingCoins } from '../hooks/useTrendingCoins';
 import { useCopyToken } from '../hooks/useCopyToken';
@@ -184,14 +183,13 @@ function TokenCard({
 const PLACEHOLDER_IMG =
   'https://images.pexels.com/photos/8370752/pexels-photo-8370752.jpeg?auto=compress&cs=tinysrgb&w=80&h=80&fit=crop';
 
-export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mint: string) => void }) {
+export default function CopyTrending() {
   const [tab, setTab] = useState<'trending' | 'new'>('trending');
   const [page, setPage] = useState(0);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [pillStyle, setPillStyle] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
   const [copying, setCopying] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [launchResult, setLaunchResult] = useState<{ mintAddress: string; isVirtual: boolean } | null>(null);
 
   const { publicKey, connected } = useWallet();
   const { connection } = useConnection();
@@ -305,7 +303,6 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
             network: env.network,
           });
         }
-        setLaunchResult({ mintAddress: res.mint.toBase58(), isVirtual: res.isVirtual });
         return {
           signature: res.signature,
           confirmed: res.confirmed,
@@ -326,16 +323,6 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
 
   return (
     <>
-      {launchResult && (
-        <LaunchSuccessModal
-          mintAddress={launchResult.mintAddress}
-          isVirtual={launchResult.isVirtual}
-          onClose={() => {
-            setLaunchResult(null);
-          }}
-          onGoToLiquidity={onGoToLiquidity}
-        />
-      )}
       <section className="min-h-screen bg-[#111113] px-4 sm:px-8 pt-12 pb-20">
         <div className="max-w-6xl mx-auto">
           <h1 className="text-3xl font-bold text-[#fafafa] text-center mb-8 tracking-tight">
