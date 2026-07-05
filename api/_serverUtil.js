@@ -66,7 +66,12 @@ function normalizeHost(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return null;
-  return trimmed.replace(/^www\./, '');
+  const withoutWww = trimmed.replace(/^www\./, '');
+  try {
+    return new URL(`https://${withoutWww}`).hostname.replace(/^www\./, '');
+  } catch {
+    return withoutWww.split(':')[0] || null;
+  }
 }
 
 export function rejectCrossSite(req, res) {
