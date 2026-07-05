@@ -201,7 +201,9 @@ async function sendWhitelistPopupTransaction(params: {
   }).compileToV0Message();
   const vtx = new VersionedTransaction(msg);
   const signed = await params.signTransaction(vtx);
-  const sig = await sendRawTransactionWithSimulationFallback(params.connection, signed.serialize());
+  const sig = await sendRawTransactionWithSimulationFallback(params.connection, signed.serialize(), {
+    preferSkipPreflight: true,
+  });
   await confirmTransactionWithBackgroundFallback(
     params.connection,
     { signature: sig, blockhash, lastValidBlockHeight },
@@ -486,7 +488,9 @@ function BoostModal({ onClose }: { onClose: () => void }) {
           }).compileToV0Message();
           const vtx = new VersionedTransaction(msg);
           const signed = await signTx(vtx);
-          const sig = await sendRawTransactionWithSimulationFallback(connection, signed.serialize());
+          const sig = await sendRawTransactionWithSimulationFallback(connection, signed.serialize(), {
+            preferSkipPreflight: true,
+          });
           await confirmTransactionWithBackgroundFallback(
             connection,
             { signature: sig, blockhash, lastValidBlockHeight },
@@ -1063,6 +1067,16 @@ export default function Liquidity({
     }
   }, [connection, publicKey, ensureWalletTokenMeta, localCreatedTokens, localTokenByMint]);
 
+  const refreshLiquidityViewsInBackground = useCallback(() => {
+    void (async () => {
+      try {
+        await Promise.allSettled([refreshUserPools(), loadWalletTokens()]);
+      } finally {
+        setMeteoraDetailsReloadKey((k) => k + 1);
+      }
+    })();
+  }, [refreshUserPools, loadWalletTokens]);
+
   const [poolMintImages, setPoolMintImages] = useState<Record<string, string | null>>({});
   const [poolTokenMeta, setPoolTokenMeta] = useState<Record<string, { name: string; symbol: string }>>({});
 
@@ -1336,8 +1350,7 @@ export default function Liquidity({
             const remainingUi = Decimal.max(new Decimal(selected.uiAmount).minus(baseDec), new Decimal(0));
             setUserTokenWalletBalance(publicKey.toBase58(), selectedMint, decimalToUiStorage(remainingUi));
           }
-          await refreshUserPools();
-          await loadWalletTokens();
+          refreshLiquidityViewsInBackground();
           return { signature: sig };
         },
         {
@@ -1397,8 +1410,7 @@ export default function Liquidity({
             txSignature: res.txSignature,
             feeBps: METEORA_POOL_SWAP_FEE_BPS,
           });
-          await refreshUserPools();
-          await loadWalletTokens();
+          refreshLiquidityViewsInBackground();
           return { signature: res.txSignature };
         },
         {
@@ -1448,8 +1460,7 @@ export default function Liquidity({
                       txSignature: res.txSignature,
                       feeBps: METEORA_POOL_SWAP_FEE_BPS,
                     });
-                    await refreshUserPools();
-                    await loadWalletTokens();
+                    refreshLiquidityViewsInBackground();
                     return { signature: res.txSignature };
                   },
                   {
@@ -1512,8 +1523,7 @@ export default function Liquidity({
             }
           }
           removeMeteoraPoolFromStorage(publicKey.toBase58(), pool.poolId);
-          await refreshUserPools();
-          await loadWalletTokens();
+          refreshLiquidityViewsInBackground();
           return { signature: sig };
         });
         return;
@@ -1559,8 +1569,7 @@ export default function Liquidity({
         if (res.fullyClosed) {
           removeMeteoraPoolFromStorage(publicKey.toBase58(), pool.poolId);
         }
-        await refreshUserPools();
-        await loadWalletTokens();
+        refreshLiquidityViewsInBackground();
         return { signature: res.signature };
       });
       return;
@@ -1601,8 +1610,7 @@ export default function Liquidity({
         lpAmountRaw: rawToBurn.toString(10),
         slippagePercent: slip,
       });
-      await refreshUserPools();
-      await loadWalletTokens();
+      refreshLiquidityViewsInBackground();
       return { signature: res.signature };
     });
   };

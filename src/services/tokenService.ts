@@ -251,7 +251,9 @@ export async function createToken(params: {
   const signed = await w.signTransaction(vtx);
 
   params.onProgress?.('confirming');
-  const sig = await sendRawTransactionWithSimulationFallback(params.connection, signed.serialize());
+  const sig = await sendRawTransactionWithSimulationFallback(params.connection, signed.serialize(), {
+    preferSkipPreflight: true,
+  });
 
   const { confirmed } = await confirmTransactionWithBackgroundFallback(
     params.connection,

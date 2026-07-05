@@ -1,7 +1,15 @@
 import { Transaction, type Connection, type Keypair, type TransactionSignature } from '@solana/web3.js';
 
-const FAST_CONFIRM_WAIT_MS = 4_000;
+const FAST_CONFIRM_WAIT_MS = 1_500;
 const SEND_RETRY_DELAYS_MS = [0, 750, 1_500, 3_000];
+
+export type SendRawTransactionOptions = {
+  /**
+   * Start with skipPreflight on the first send attempt to reduce post-sign latency.
+   * Useful when the transaction was already locally checked or UX speed matters more than RPC preflight.
+   */
+  preferSkipPreflight?: boolean;
+};
 
 function isSimulationPreflightFailure(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e);
@@ -76,8 +84,9 @@ export async function assertLegacyTransactionSimulationOk(
 export async function sendRawTransactionWithSimulationFallback(
   connection: Connection,
   rawTx: Uint8Array,
+  options: SendRawTransactionOptions = {},
 ): Promise<TransactionSignature> {
-  let forceSkipPreflight = false;
+  let forceSkipPreflight = options.preferSkipPreflight === true;
   let lastError: unknown;
 
   for (let attempt = 0; attempt < SEND_RETRY_DELAYS_MS.length; attempt++) {
