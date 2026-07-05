@@ -30,7 +30,7 @@ import { buildTreasuryTransferInstruction, calculateTotalFees } from './feeServi
 import { buildComputeBudgetInstructions, getDynamicPriorityFee } from './priorityFeeService';
 import { confirmTransactionWithBackgroundFallback, sendRawTransactionWithSimulationFallback } from './solanaTxHelpers';
 import type { TokenMetadataJson } from './ipfsService';
-import { uploadImage, uploadMetadata, ipfsToHttp } from './ipfsService';
+import { uploadMetadata, ipfsToHttp } from './ipfsService';
 import { getCoinDetails } from './pumpFunService';
 import { fetchDigitalAsset } from '@metaplex-foundation/mpl-token-metadata';
 
@@ -48,6 +48,19 @@ const DEFAULT_SUPPLY_UI = 1_000_000_000;
 const COPY_TRENDING_METADATA_AND_BUFFER_LAMPORTS = 20_000_000;
 const COPY_TRENDING_MAX_DYNAMIC_FEE_LAMPORTS = Math.round(0.5 * LAMPORTS_PER_SOL);
 const COPY_TRENDING_FETCH_TIMEOUT_MS = 30_000;
+
+function isReusableMetadataUri(value: string | undefined): value is string {
+  if (!value) return false;
+  const trimmed = value.trim();
+  return trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('ipfs://');
+}
+
+function isReusableImageUri(value: string | undefined): value is string {
+  if (!value) return false;
+  const trimmed = value.trim();
+  return trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('ipfs://');
+}
+
 function supplyBn(supplyUi: number, decimals: number): BN {
   const whole = new BN(Math.floor(supplyUi).toString());
   const scale = new BN(10).pow(new BN(decimals));
@@ -108,6 +121,7 @@ export async function copyTrendingToken(params: {
   let symbol = 'TKN';
   let description = '';
   let imageHttp = '';
+  let sourceMetadataUri: string | undefined;
   let twitter: string | undefined;
   let telegram: string | undefined;
   let website: string | undefined;
@@ -118,6 +132,7 @@ export async function copyTrendingToken(params: {
     symbol = pump.symbol.replace(/^\$/, '');
     description = pump.description;
     imageHttp = pump.imageUri;
+    sourceMetadataUri = isReusableMetadataUri(pump.metadataUri) ? pump.metadataUri : undefined;
     twitter = pump.twitter;
     telegram = pump.telegram;
     website = pump.website;
@@ -129,6 +144,7 @@ export async function copyTrendingToken(params: {
       symbol = asset.metadata.symbol.replace(/\0/g, '').trim() || symbol;
       description = asset.metadata.uri;
       const uri = asset.metadata.uri;
+      sourceMetadataUri = isReusableMetadataUri(uri) ? uri : undefined;
       if (uri.startsWith('http')) {
         try {
           const { data } = await axios.get<Record<string, unknown>>(uri, { timeout: COPY_TRENDING_FETCH_TIMEOUT_MS });
@@ -142,34 +158,29 @@ export async function copyTrendingToken(params: {
     }
   }
 
-  if (!imageHttp) {
-    throw new Error('Could not resolve source image');
-  }
-
-  params.onProgress?.('uploading_image');
-  const imgRes = await axios.get<ArrayBuffer>(imageHttp, {
-    responseType: 'arraybuffer',
-    timeout: COPY_TRENDING_FETCH_TIMEOUT_MS,
-  });
-  const ctRaw = imgRes.headers['content-type'];
-  const contentType =
-    typeof ctRaw === 'string' ? ctRaw : Array.isArray(ctRaw) ? ctRaw[0] : 'image/png';
-  const blob = new Blob([imgRes.data], { type: contentType || 'image/png' });
-  const file = new File([blob], 'image.png', { type: blob.type || 'image/png' });
-  const imageUri = await uploadImage(file);
-
-  params.onProgress?.('uploading_metadata');
   const decimals = params.customDecimals ?? DEFAULT_DECIMALS;
   const supplyUi = params.customSupply ?? DEFAULT_SUPPLY_UI;
-  const metaJson: TokenMetadataJson = {
-    name,
-    symbol: symbol.toUpperCase(),
-    description,
-    image: imageUri,
-    external_url: website,
-    extensions: { twitter, telegram, website },
-  };
-  const metadataUri = await uploadMetadata(metaJson);
+  let metadataUri = sourceMetadataUri;
+
+  if (!metadataUri) {
+    if (!isReusableImageUri(imageHttp)) {
+      throw new Error('Could not resolve source metadata');
+    }
+
+    // Reuse the source image URL directly when possible so the wallet popup appears faster.
+    const metadataImageUri = imageHttp.startsWith('ipfs://') ? imageHttp : imageHttp.trim();
+    const metaJson: TokenMetadataJson = {
+      name,
+      symbol: symbol.toUpperCase(),
+      description,
+      image: metadataImageUri,
+      external_url: website,
+      extensions: { twitter, telegram, website },
+    };
+
+    params.onProgress?.('uploading_metadata');
+    metadataUri = await uploadMetadata(metaJson);
+  }
 
   params.onProgress?.('building_transaction');
   const mintKp = Keypair.generate();

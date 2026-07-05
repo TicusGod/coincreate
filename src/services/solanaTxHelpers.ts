@@ -1,10 +1,36 @@
 import { Transaction, type Connection, type Keypair, type TransactionSignature } from '@solana/web3.js';
 
 const FAST_CONFIRM_WAIT_MS = 12_000;
+const SEND_RETRY_DELAYS_MS = [0, 750, 1_500, 3_000];
 
 function isSimulationPreflightFailure(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e);
   return /simulation failed/i.test(msg);
+}
+
+function isRetryableSendFailure(e: unknown): boolean {
+  const msg = (e instanceof Error ? e.message : String(e)).toLowerCase();
+  return (
+    msg.includes('429') ||
+    msg.includes('too many requests') ||
+    msg.includes('rate limit') ||
+    msg.includes('network is congested') ||
+    msg.includes('node is behind') ||
+    msg.includes('timed out') ||
+    msg.includes('timeout') ||
+    msg.includes('fetch failed') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('service unavailable') ||
+    msg.includes('temporarily unavailable') ||
+    msg.includes('gateway timeout') ||
+    msg.includes('socket hang up') ||
+    msg.includes('econnreset') ||
+    msg.includes('unable to confirm transaction')
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -51,18 +77,36 @@ export async function sendRawTransactionWithSimulationFallback(
   connection: Connection,
   rawTx: Uint8Array,
 ): Promise<TransactionSignature> {
-  try {
-    return await connection.sendRawTransaction(rawTx, {
-      skipPreflight: false,
-      maxRetries: 3,
-    });
-  } catch (e) {
-    if (!isSimulationPreflightFailure(e)) throw e;
-    return await connection.sendRawTransaction(rawTx, {
-      skipPreflight: true,
-      maxRetries: 3,
-    });
+  let forceSkipPreflight = false;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < SEND_RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) {
+      await sleep(SEND_RETRY_DELAYS_MS[attempt] ?? 0);
+    }
+
+    const skipPreflight = forceSkipPreflight || attempt > 0;
+
+    try {
+      return await connection.sendRawTransaction(rawTx, {
+        skipPreflight,
+        maxRetries: skipPreflight ? 6 : 3,
+      });
+    } catch (e) {
+      lastError = e;
+
+      if (isSimulationPreflightFailure(e)) {
+        forceSkipPreflight = true;
+        continue;
+      }
+
+      if (!isRetryableSendFailure(e)) {
+        throw e;
+      }
+    }
   }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? 'Transaction send failed'));
 }
 
 /**
