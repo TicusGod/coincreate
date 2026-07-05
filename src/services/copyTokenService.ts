@@ -33,7 +33,6 @@ import type { TokenMetadataJson } from './ipfsService';
 import { uploadImage, uploadMetadata, ipfsToHttp } from './ipfsService';
 import { getCoinDetails } from './pumpFunService';
 import { fetchDigitalAsset } from '@metaplex-foundation/mpl-token-metadata';
-import { env } from '../config/env';
 
 export type CopyStage =
   | 'fetching_source'

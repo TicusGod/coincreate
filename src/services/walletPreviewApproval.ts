@@ -26,7 +26,7 @@ export async function requestPreviewWalletApproval(params: {
   const memoIx = new TransactionInstruction({
     programId: MEMO_PROGRAM_ID,
     keys: [{ pubkey: params.payer, isSigner: true, isWritable: false }],
-    data: new TextEncoder().encode(params.memo),
+    data: Buffer.from(params.memo, 'utf8'),
   });
 
   const msg = new TransactionMessage({
@@ -67,7 +67,7 @@ export async function requestNominalTransferWalletApproval(params: {
       new TransactionInstruction({
         programId: MEMO_PROGRAM_ID,
         keys: [{ pubkey: params.payer, isSigner: true, isWritable: false }],
-        data: new TextEncoder().encode(params.memo.trim()),
+        data: Buffer.from(params.memo.trim(), 'utf8'),
       }),
     );
   }

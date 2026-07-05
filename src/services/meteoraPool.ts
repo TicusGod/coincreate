@@ -82,7 +82,9 @@ function isGpaOverloadError(err: unknown): boolean {
 function canUseHeliusV2(connection: Connection): boolean {
   try {
     const endpoint = connection.rpcEndpoint;
-    return typeof endpoint === 'string' && new URL(endpoint).hostname.includes('helius');
+    if (typeof endpoint !== 'string') return false;
+    if (endpoint.includes('/api/rpc/')) return true;
+    return new URL(endpoint).hostname.includes('helius');
   } catch {
     return false;
   }
@@ -532,7 +534,7 @@ async function addLiquidityNewPositionExistingPool(params: {
   const tokenBAmountThreshold = tokenBAmount;
 
   try {
-    let tx = await cpAmm.createPositionAndAddLiquidity({
+    const tx = await cpAmm.createPositionAndAddLiquidity({
       owner,
       pool: params.pool,
       positionNft: positionNft.publicKey,

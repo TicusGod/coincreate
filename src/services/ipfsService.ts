@@ -37,10 +37,6 @@ function loadImageDimensions(file: File): Promise<{ w: number; h: number }> {
 }
 
 export async function uploadImage(file: File): Promise<string> {
-  const jwt = env.pinataJwt;
-  if (!jwt) {
-    throw new Error('VITE_PINATA_JWT is required for image upload');
-  }
   if (file.size > MAX_BYTES) {
     throw new Error('Image must be 5MB or smaller');
   }
@@ -56,13 +52,10 @@ export async function uploadImage(file: File): Promise<string> {
   form.append('file', file);
 
   const { data } = await axios.post<{ IpfsHash: string }>(
-    'https://api.pinata.cloud/pinning/pinFileToIPFS',
+    '/api/pinata/file',
     form,
     {
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-        'Content-Type': 'multipart/form-data',
-      },
+      headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 10_000,
     },
   );
@@ -73,15 +66,11 @@ export async function uploadImage(file: File): Promise<string> {
 }
 
 export async function uploadMetadata(json: TokenMetadataJson): Promise<string> {
-  const jwt = env.pinataJwt;
-  if (!jwt) {
-    throw new Error('VITE_PINATA_JWT is required for metadata upload');
-  }
   const { data } = await axios.post<{ IpfsHash: string }>(
-    'https://api.pinata.cloud/pinning/pinJSONToIPFS',
+    '/api/pinata/json',
     { pinataContent: json, pinataMetadata: { name: `${json.symbol}-metadata` } },
     {
-      headers: { Authorization: `Bearer ${jwt}` },
+      headers: { 'Content-Type': 'application/json' },
       timeout: 10_000,
     },
   );

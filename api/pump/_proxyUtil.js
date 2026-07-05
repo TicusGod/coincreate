@@ -26,7 +26,9 @@ export async function forwardPumpGet(upstreamUrl, req, res) {
     Accept: 'application/json',
     'User-Agent': UA,
   };
-  if (typeof req.headers.authorization === 'string') {
+  if (typeof process.env.PUMPFUN_AUTH === 'string' && process.env.PUMPFUN_AUTH.trim()) {
+    headers.Authorization = `Bearer ${process.env.PUMPFUN_AUTH.trim()}`;
+  } else if (typeof req.headers.authorization === 'string') {
     headers.Authorization = req.headers.authorization;
   }
   try {

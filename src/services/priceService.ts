@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { env } from '../config/env';
 
 const CACHE_MS = 30_000;
 const cache = new Map<string, { price: number; at: number }>();
@@ -48,10 +47,10 @@ function parsePricePayload(data: unknown, mints: string[]): Record<string, numbe
 
 async function fetchBatch(mints: string[]): Promise<Record<string, number>> {
   if (mints.length === 0) return {};
-  const url = `${env.priceApi}?ids=${mints.join(',')}`;
-  const headers: Record<string, string> = {};
-  if (env.jupiterPriceApiKey) headers['x-api-key'] = env.jupiterPriceApiKey;
-  const { data } = await axios.get<unknown>(url, { timeout: 10_000, headers });
+  const { data } = await axios.get<unknown>('/api/price', {
+    timeout: 10_000,
+    params: { ids: mints.join(',') },
+  });
   return parsePricePayload(data, mints);
 }
 
