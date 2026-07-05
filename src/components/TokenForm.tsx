@@ -44,7 +44,7 @@ const STAGE_LABEL: Record<CreationStage, string> = {
   uploading_metadata: 'Uploading metadata…',
   building_transaction: 'Building transaction…',
   awaiting_signature: 'Approve in your wallet…',
-  confirming: 'Confirming on-chain…',
+  confirming: 'Submitting to the blockchain…',
   done: 'Almost done…',
 };
 
@@ -278,7 +278,13 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
       const mintB58 = res.mint.toBase58();
       setLaunchResult({ mintAddress: mintB58, isVirtual: res.isVirtual });
       setStatus('success');
-      toast.success(res.isVirtual ? 'Preview token created' : 'Token created');
+      toast.success(
+        res.isVirtual
+          ? 'Preview token created'
+          : res.confirmed
+            ? 'Token created'
+            : 'Token submitted. Network confirmation may take a few more seconds.',
+      );
     } catch (e) {
       const msg = parseSolanaError(e).message;
       toast.error(msg);
@@ -309,7 +315,7 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
         </div>
         <h3 className="text-[#fafafa] text-lg font-semibold mb-1.5">Confirming Transaction</h3>
         <p className="text-[#696e77] text-sm">{stageLine}</p>
-        <p className="text-[#696e77] text-xs mt-2">Minting your token on the Solana blockchain…</p>
+        <p className="text-[#696e77] text-xs mt-2">Minting your token on Solana. Slow RPC confirmation can take a little longer.</p>
         <div className="mt-6 flex justify-center gap-1.5">
           {[0, 1, 2].map((i) => (
             <div

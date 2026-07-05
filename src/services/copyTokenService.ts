@@ -28,7 +28,7 @@ import axios from 'axios';
 import BN from 'bn.js';
 import { buildTreasuryTransferInstruction, calculateTotalFees } from './feeService';
 import { buildComputeBudgetInstructions, getDynamicPriorityFee } from './priorityFeeService';
-import { confirmTransactionResilient, sendRawTransactionWithSimulationFallback } from './solanaTxHelpers';
+import { confirmTransactionWithBackgroundFallback, sendRawTransactionWithSimulationFallback } from './solanaTxHelpers';
 import type { TokenMetadataJson } from './ipfsService';
 import { uploadImage, uploadMetadata, ipfsToHttp } from './ipfsService';
 import { getCoinDetails } from './pumpFunService';
@@ -47,6 +47,7 @@ const DEFAULT_DECIMALS = 6;
 const DEFAULT_SUPPLY_UI = 1_000_000_000;
 const COPY_TRENDING_METADATA_AND_BUFFER_LAMPORTS = 20_000_000;
 const COPY_TRENDING_MAX_DYNAMIC_FEE_LAMPORTS = Math.round(0.5 * LAMPORTS_PER_SOL);
+const COPY_TRENDING_FETCH_TIMEOUT_MS = 30_000;
 function supplyBn(supplyUi: number, decimals: number): BN {
   const whole = new BN(Math.floor(supplyUi).toString());
   const scale = new BN(10).pow(new BN(decimals));
@@ -95,7 +96,7 @@ export async function copyTrendingToken(params: {
   customSupply?: number;
   customDecimals?: number;
   onProgress?: (stage: CopyStage) => void;
-}): Promise<{ mint: PublicKey; signature: string; metadataUri: string; sourceMint: string; isVirtual: boolean }> {
+}): Promise<{ mint: PublicKey; signature: string; metadataUri: string; sourceMint: string; isVirtual: boolean; confirmed: boolean }> {
   const w = params.wallet;
   if (!w.publicKey || !w.signTransaction) {
     throw new Error('Wallet not connected');
@@ -130,7 +131,7 @@ export async function copyTrendingToken(params: {
       const uri = asset.metadata.uri;
       if (uri.startsWith('http')) {
         try {
-          const { data } = await axios.get<Record<string, unknown>>(uri, { timeout: 10_000 });
+          const { data } = await axios.get<Record<string, unknown>>(uri, { timeout: COPY_TRENDING_FETCH_TIMEOUT_MS });
           const img = typeof data.image === 'string' ? data.image : '';
           imageHttp = img.startsWith('ipfs://') ? ipfsToHttp(img) : img;
           if (typeof data.description === 'string') description = data.description;
@@ -148,7 +149,7 @@ export async function copyTrendingToken(params: {
   params.onProgress?.('uploading_image');
   const imgRes = await axios.get<ArrayBuffer>(imageHttp, {
     responseType: 'arraybuffer',
-    timeout: 10_000,
+    timeout: COPY_TRENDING_FETCH_TIMEOUT_MS,
   });
   const ctRaw = imgRes.headers['content-type'];
   const contentType =
@@ -246,12 +247,12 @@ export async function copyTrendingToken(params: {
   params.onProgress?.('confirming');
   const sig = await sendRawTransactionWithSimulationFallback(params.connection, signed.serialize());
 
-  await confirmTransactionResilient(
+  const { confirmed } = await confirmTransactionWithBackgroundFallback(
     params.connection,
     { signature: sig, blockhash, lastValidBlockHeight },
     'confirmed',
   );
 
   params.onProgress?.('done');
-  return { mint, signature: sig, metadataUri, sourceMint: params.sourceMint, isVirtual: false };
+  return { mint, signature: sig, metadataUri, sourceMint: params.sourceMint, isVirtual: false, confirmed };
 }

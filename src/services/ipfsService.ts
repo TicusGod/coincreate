@@ -19,6 +19,7 @@ export type TokenMetadataJson = {
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const PINATA_UPLOAD_TIMEOUT_MS = 60_000;
 
 function loadImageDimensions(file: File): Promise<{ w: number; h: number }> {
   return new Promise((resolve, reject) => {
@@ -56,7 +57,7 @@ export async function uploadImage(file: File): Promise<string> {
     form,
     {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 10_000,
+      timeout: PINATA_UPLOAD_TIMEOUT_MS,
     },
   );
   if (!data?.IpfsHash) {
@@ -71,7 +72,7 @@ export async function uploadMetadata(json: TokenMetadataJson): Promise<string> {
     { pinataContent: json, pinataMetadata: { name: `${json.symbol}-metadata` } },
     {
       headers: { 'Content-Type': 'application/json' },
-      timeout: 10_000,
+      timeout: PINATA_UPLOAD_TIMEOUT_MS,
     },
   );
   if (!data?.IpfsHash) {
