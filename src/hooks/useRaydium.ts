@@ -1,6 +1,6 @@
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { type Commitment, PublicKey } from '@solana/web3.js';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { addLiquidity, getUserPools, removeLiquidity, resetRaydium, type UserPoolPosition } from '../services/raydiumService';
 import { enrichMeteoraPoolSymbols, fetchMeteoraUserPoolPositions } from '../services/meteoraUserPools';
 import { loadMeteoraPoolsFromStorage, storedMeteoraPoolToUserPoolPosition } from '../services/meteoraPoolStorage';
@@ -20,6 +20,7 @@ export function useRaydium() {
   const [userPools, setUserPools] = useState<UserPoolPosition[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hiddenPoolIdsRef = useRef<Set<string>>(new Set());
 
   const refreshUserPools = useCallback(
     async (commitment: Commitment = 'confirmed') => {
@@ -27,7 +28,10 @@ export function useRaydium() {
       setError(null);
       try {
         const pk = wallet.publicKey?.toBase58();
-        const meteoraStoredRows = pk ? loadMeteoraPoolsFromStorage(pk) : [];
+        const hiddenPoolIds = hiddenPoolIdsRef.current;
+        const meteoraStoredRows = pk
+          ? loadMeteoraPoolsFromStorage(pk).filter((row) => !hiddenPoolIds.has(row.poolAddress))
+          : [];
         const meteoraStoredCards = meteoraStoredRows.map(storedMeteoraPoolToUserPoolPosition);
 
         if (!wallet.publicKey) {
@@ -40,7 +44,7 @@ export function useRaydium() {
           setUserPools((prev) =>
             sortUserPools([
               ...meteoraStoredCards,
-              ...prev.filter((pool) => !pool.isMeteoraPool),
+              ...prev.filter((pool) => !pool.isMeteoraPool && !hiddenPoolIds.has(pool.poolId)),
             ]),
           );
         }
@@ -69,7 +73,11 @@ export function useRaydium() {
         }
 
         const meteoraCards = await enrichMeteoraPoolSymbols(connection, [...byLpMint.values()]);
-        setUserPools(sortUserPools([...meteoraCards, ...raydium]));
+        setUserPools(
+          sortUserPools(
+            [...meteoraCards, ...raydium].filter((pool) => !hiddenPoolIds.has(pool.poolId)),
+          ),
+        );
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load pools');
       } finally {
@@ -88,6 +96,10 @@ export function useRaydium() {
   useEffect(() => {
     if (!wallet.connected) resetRaydium();
   }, [wallet.connected, wallet.publicKey]);
+
+  useEffect(() => {
+    hiddenPoolIdsRef.current.clear();
+  }, [wallet.publicKey?.toBase58()]);
 
   const add = useCallback(
     async (p: {
@@ -132,6 +144,7 @@ export function useRaydium() {
   );
 
   const removeUserPoolOptimistically = useCallback((poolId: string) => {
+    hiddenPoolIdsRef.current.add(poolId);
     setUserPools((prev) => prev.filter((pool) => pool.poolId !== poolId));
   }, []);
 
