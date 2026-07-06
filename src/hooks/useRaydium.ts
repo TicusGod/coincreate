@@ -21,9 +21,11 @@ export function useRaydium() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hiddenPoolIdsRef = useRef<Set<string>>(new Set());
+  const refreshSeqRef = useRef(0);
 
   const refreshUserPools = useCallback(
     async (commitment: Commitment = 'confirmed') => {
+      const refreshSeq = ++refreshSeqRef.current;
       setIsLoading(true);
       setError(null);
       try {
@@ -35,18 +37,23 @@ export function useRaydium() {
         const meteoraStoredCards = meteoraStoredRows.map(storedMeteoraPoolToUserPoolPosition);
 
         if (!wallet.publicKey) {
+          if (refreshSeq !== refreshSeqRef.current) return;
           setUserPools(meteoraStoredCards);
-          setUserPools(await enrichMeteoraPoolSymbols(connection, meteoraStoredCards));
+          const enrichedStored = await enrichMeteoraPoolSymbols(connection, meteoraStoredCards);
+          if (refreshSeq !== refreshSeqRef.current) return;
+          setUserPools(enrichedStored);
           return;
         }
 
         if (meteoraStoredCards.length > 0) {
-          setUserPools((prev) =>
-            sortUserPools([
-              ...meteoraStoredCards,
-              ...prev.filter((pool) => !pool.isMeteoraPool && !hiddenPoolIds.has(pool.poolId)),
-            ]),
-          );
+          if (refreshSeq === refreshSeqRef.current) {
+            setUserPools((prev) =>
+              sortUserPools([
+                ...meteoraStoredCards,
+                ...prev.filter((pool) => !pool.isMeteoraPool && !hiddenPoolIds.has(pool.poolId)),
+              ]),
+            );
+          }
         }
 
         const [meteoraChain, raydium] = await Promise.all([
@@ -73,15 +80,19 @@ export function useRaydium() {
         }
 
         const meteoraCards = await enrichMeteoraPoolSymbols(connection, [...byLpMint.values()]);
+        if (refreshSeq !== refreshSeqRef.current) return;
         setUserPools(
           sortUserPools(
             [...meteoraCards, ...raydium].filter((pool) => !hiddenPoolIds.has(pool.poolId)),
           ),
         );
       } catch (e) {
+        if (refreshSeq !== refreshSeqRef.current) return;
         setError(e instanceof Error ? e.message : 'Failed to load pools');
       } finally {
-        setIsLoading(false);
+        if (refreshSeq === refreshSeqRef.current) {
+          setIsLoading(false);
+        }
       }
     },
     [connection, wallet.publicKey],
