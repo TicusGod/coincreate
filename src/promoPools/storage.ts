@@ -5,7 +5,7 @@ import type { PromoPoolRecordV1 } from './types';
 const STORAGE_VERSION = 1;
 
 function storageKey(wallet58: string): string {
-  return `createcoin_promo_pools_v${STORAGE_VERSION}_${env.network}_${wallet58}`;
+  return `coincreate_promo_pools_v${STORAGE_VERSION}_${env.network}_${wallet58}`;
 }
 
 function isRecord(x: unknown): x is PromoPoolRecordV1 {
