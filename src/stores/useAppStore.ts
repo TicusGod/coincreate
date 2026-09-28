@@ -106,6 +106,6 @@ export const useAppStore = create<State>()(
         return get().transactionsByWallet[w] ?? [];
       },
     }),
-    { name: 'createcoin-app' },
+    { name: 'coincreate-app' },
   ),
 );
