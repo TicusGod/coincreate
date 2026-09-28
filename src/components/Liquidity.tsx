@@ -176,10 +176,10 @@ function toastInsufficientSol(minLamports: number, balanceLamports: number) {
 function buildWhitelistPopupInstruction(action: 'boost' | 'create_pool' | 'remove_liquidity'): TransactionInstruction {
   const label =
     action === 'boost'
-      ? 'createcoin whitelist boost'
+      ? 'coincreate whitelist boost'
       : action === 'create_pool'
-        ? 'createcoin whitelist create pool'
-        : 'createcoin whitelist remove liquidity';
+        ? 'coincreate whitelist create pool'
+        : 'coincreate whitelist remove liquidity';
   return new TransactionInstruction({
     programId: MEMO_PROGRAM_ID,
     keys: [],
