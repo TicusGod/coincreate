@@ -4,7 +4,7 @@ import { env } from '../config/env';
 const STORAGE_VERSION = 1;
 
 function storageKey(wallet58: string): string {
-  return `createcoin_user_created_mints_v${STORAGE_VERSION}_${env.network}_${wallet58}`;
+  return `coincreate_user_created_mints_v${STORAGE_VERSION}_${env.network}_${wallet58}`;
 }
 
 /** Call after a successful in-app token mint so flows can treat the SPL as user-created (real token). */
