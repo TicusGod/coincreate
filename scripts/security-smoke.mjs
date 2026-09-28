@@ -4,7 +4,7 @@ const ORIGIN = 'http://127.0.0.1:4310';
 const HEADERS = {
   origin: ORIGIN,
   referer: `${ORIGIN}/`,
-  'x-createcoin-proxy': '1',
+  'x-coincreate-proxy': '1',
 };
 
 function assert(condition, message) {
@@ -36,7 +36,7 @@ async function main() {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-createcoin-proxy': '1',
+        'x-coincreate-proxy': '1',
         origin: 'https://evil.example',
         referer: 'https://evil.example/',
       },
