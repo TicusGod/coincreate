@@ -1,7 +1,7 @@
-const rateBuckets = globalThis.__createcoinRateBuckets ?? new Map();
-globalThis.__createcoinRateBuckets = rateBuckets;
+const rateBuckets = globalThis.__coincreateRateBuckets ?? new Map();
+globalThis.__coincreateRateBuckets = rateBuckets;
 
-const SAME_ORIGIN_PROXY_HEADER = 'x-createcoin-proxy';
+const SAME_ORIGIN_PROXY_HEADER = 'x-coincreate-proxy';
 const SAME_ORIGIN_PROXY_HEADER_VALUE = '1';
 const SAFE_FETCH_SITES = new Set(['same-origin', 'same-site', 'none']);
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
