@@ -64,7 +64,7 @@ Optional fee overrides: see `.env.example` (`VITE_FEE_*`).
 
 ## Persistence
 
-`zustand` with `persist` (`createcoin-app` in localStorage) stores per-wallet created token summaries and recent transaction signatures. It is updated after successful create and copy flows.
+`zustand` with `persist` (`coincreate-app` in localStorage) stores per-wallet created token summaries and recent transaction signatures. It is updated after successful create and copy flows.
 
 ## External APIs
 
