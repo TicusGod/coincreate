@@ -2,7 +2,6 @@ import { useState, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { Upload, ArrowRight, ArrowLeft, Loader2, CheckCircle2 } from 'lucide-react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 import LaunchSuccessModal from './LaunchSuccessModal';
 import { useSolanaWallet } from '../hooks/useSolanaWallet';
 import { useTokenCreation } from '../hooks/useTokenCreation';
@@ -10,6 +9,8 @@ import { useAppStore } from '../stores/useAppStore';
 import { env } from '../config/env';
 import { registerUserCreatedTokenMint } from '../promoPools/userCreatedMints';
 import { parseSolanaError } from '../utils/errorParser';
+import { hasEnoughSolOrToast } from '../utils/insufficientSolToast';
+import { calculateTotalFees } from '../services/feeService';
 import {
   buildTokenCreationFeeKinds,
   estimateMinLamportsForTokenCreation,
@@ -205,14 +206,17 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
     });
     if (!isFeeExemptWallet) {
       try {
-        const minLamports = await estimateMinLamportsForTokenCreation(connection, feeKinds, publicKey);
-        const balance = await connection.getBalance(publicKey, 'confirmed');
-        if (balance < minLamports) {
-          const need = (minLamports / LAMPORTS_PER_SOL).toFixed(3);
-          const have = (balance / LAMPORTS_PER_SOL).toFixed(4);
-          toast.error(`Insufficient SOL. Need ~${need} SOL; you have ${have} SOL.`);
-          return;
-        }
+        const [minLamports, balance] = await Promise.all([
+          estimateMinLamportsForTokenCreation(connection, feeKinds, publicKey),
+          connection.getBalance(publicKey, 'confirmed'),
+        ]);
+        const websiteFeeLamports = calculateTotalFees(feeKinds, publicKey).totalLamports;
+        const ok = hasEnoughSolOrToast(
+          'create',
+          { websiteFeeLamports, networkFeeLamports: minLamports - websiteFeeLamports },
+          balance,
+        );
+        if (!ok) return;
       } catch {
         toast.error('Could not verify balance. Check your connection and try again.');
         return;

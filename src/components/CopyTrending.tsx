@@ -10,6 +10,7 @@ import { prefetchCopyMetadata, prewarmCopyTrendingRpc } from '../services/copyTo
 import { useAppStore } from '../stores/useAppStore';
 import { env } from '../config/env';
 import { withTransactionToast } from '../utils/transactionToast';
+import { isInsufficientSolError, toastFromInsufficientSolError } from '../utils/insufficientSolToast';
 
 interface TrendingToken {
   id: string;
@@ -405,9 +406,11 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
       }, {
         successMessage: () => 'Token created',
         successAppendSignature: false,
+        skipParsedErrorToast: isInsufficientSolError,
       });
-    } catch {
-      /* toast handled */
+    } catch (e) {
+      if (isInsufficientSolError(e)) toastFromInsufficientSolError(e);
+      /* other errors: toast handled */
     } finally {
       setCopying(null);
     }

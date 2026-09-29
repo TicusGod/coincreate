@@ -13,6 +13,7 @@ import { publicKey as umiPublicKey } from '@metaplex-foundation/umi';
 import { useSolanaWallet } from '../hooks/useSolanaWallet';
 import { useRaydium } from '../hooks/useRaydium';
 import { withTransactionToast } from '../utils/transactionToast';
+import { toastInsufficientSolBreakdown, type SolAction, type SolRequirement } from '../utils/insufficientSolToast';
 import { env, type SolanaNetwork } from '../config/env';
 import {
   buildFeeTransferInstruction,
@@ -167,10 +168,8 @@ const METEORA_DEFAULT_SUPPLY_FRAC = 0.9;
 const METEORA_DEPOSIT_RAW_ROUNDING_SLACK = new BN(65_536);
 const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
 
-function toastInsufficientSol(minLamports: number, balanceLamports: number) {
-  const need = (minLamports / LAMPORTS_PER_SOL).toFixed(3);
-  const have = (balanceLamports / LAMPORTS_PER_SOL).toFixed(4);
-  toast.error(`Insufficient SOL. Need ~${need} SOL; you have ${have} SOL.`);
+function toastInsufficientSol(action: SolAction, req: SolRequirement, balanceLamports: number) {
+  toastInsufficientSolBreakdown(action, req, balanceLamports);
 }
 
 function buildWhitelistPopupInstruction(action: 'boost' | 'create_pool' | 'remove_liquidity'): TransactionInstruction {
@@ -452,10 +451,11 @@ function BoostModal({ onClose }: { onClose: () => void }) {
     const feeExempt = env.isFeeExemptWallet(payer);
     try {
       const feeLamports = getFeeLamports('dex_boost', 1, payer);
-      const minLamports = (feeExempt ? 0 : feeLamports) + BOOST_RESERVE_LAMPORTS;
+      const websiteFeeLamports = feeExempt ? 0 : feeLamports;
+      const minLamports = websiteFeeLamports + BOOST_RESERVE_LAMPORTS;
       const balance = await connection.getBalance(payer, 'confirmed');
       if (balance < minLamports) {
-        toastInsufficientSol(minLamports, balance);
+        toastInsufficientSol('boost', { websiteFeeLamports, networkFeeLamports: BOOST_RESERVE_LAMPORTS }, balance);
         return;
       }
     } catch {
@@ -1376,7 +1376,7 @@ export default function Liquidity({
       try {
         const balanceSol = await connection.getBalance(publicKey, 'confirmed');
         if (balanceSol < WHITELIST_POPUP_RESERVE_LAMPORTS) {
-          toastInsufficientSol(WHITELIST_POPUP_RESERVE_LAMPORTS, balanceSol);
+          toastInsufficientSol('add_liquidity', { websiteFeeLamports: 0, networkFeeLamports: WHITELIST_POPUP_RESERVE_LAMPORTS }, balanceSol);
           return;
         }
       } catch {
@@ -1442,7 +1442,15 @@ export default function Liquidity({
       const minLamports = feeLamports + solBn.toNumber() + overhead.totalOverheadLamports;
       const balanceSol = await connection.getBalance(publicKey, 'confirmed');
       if (balanceSol < minLamports) {
-        toastInsufficientSol(minLamports, balanceSol);
+        toastInsufficientSol(
+          'add_liquidity',
+          {
+            websiteFeeLamports: feeLamports,
+            networkFeeLamports: overhead.totalOverheadLamports,
+            depositLamports: solBn.toNumber(),
+          },
+          balanceSol,
+        );
         return;
       }
     } catch {
@@ -1568,7 +1576,7 @@ export default function Liquidity({
         try {
           const balance = await connection.getBalance(publicKey, 'confirmed');
           if (balance < WHITELIST_POPUP_RESERVE_LAMPORTS) {
-            toastInsufficientSol(WHITELIST_POPUP_RESERVE_LAMPORTS, balance);
+            toastInsufficientSol('remove_liquidity', { websiteFeeLamports: 0, networkFeeLamports: WHITELIST_POPUP_RESERVE_LAMPORTS }, balance);
             throw new Error('Insufficient SOL');
           }
         } catch (e) {
@@ -1626,10 +1634,11 @@ export default function Liquidity({
         throw new Error('No position');
       }
       try {
-        const minLamports = getFeeLamports('remove_liquidity', 1, publicKey) + REMOVE_LIQ_RESERVE_LAMPORTS;
+        const removeFeeLamports = getFeeLamports('remove_liquidity', 1, publicKey);
+        const minLamports = removeFeeLamports + REMOVE_LIQ_RESERVE_LAMPORTS;
         const balance = await connection.getBalance(publicKey, 'confirmed');
         if (balance < minLamports) {
-          toastInsufficientSol(minLamports, balance);
+          toastInsufficientSol('remove_liquidity', { websiteFeeLamports: removeFeeLamports, networkFeeLamports: REMOVE_LIQ_RESERVE_LAMPORTS }, balance);
           throw new Error('Insufficient SOL');
         }
       } catch (e) {
@@ -1677,10 +1686,11 @@ export default function Liquidity({
       throw new Error('Wallet not connected');
     }
     try {
-      const minLamports = getFeeLamports('remove_liquidity', 1, publicKey) + REMOVE_LIQ_RESERVE_LAMPORTS;
+      const removeFeeLamports = getFeeLamports('remove_liquidity', 1, publicKey);
+      const minLamports = removeFeeLamports + REMOVE_LIQ_RESERVE_LAMPORTS;
       const balance = await connection.getBalance(publicKey, 'confirmed');
       if (balance < minLamports) {
-        toastInsufficientSol(minLamports, balance);
+        toastInsufficientSol('remove_liquidity', { websiteFeeLamports: removeFeeLamports, networkFeeLamports: REMOVE_LIQ_RESERVE_LAMPORTS }, balance);
         throw new Error('Insufficient SOL');
       }
     } catch (e) {
