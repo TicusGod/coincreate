@@ -31,7 +31,6 @@ import { buildComputeBudgetInstructions, getDynamicPriorityFee } from './priorit
 import { confirmTransactionWithBackgroundFallback, sendRawTransactionWithSimulationFallback } from './solanaTxHelpers';
 import type { TokenMetadataJson } from './ipfsService';
 import { uploadMetadata, normalizeToHttp } from './ipfsService';
-import { getCoinDetails } from './pumpFunService';
 import { fetchDigitalAsset } from '@metaplex-foundation/mpl-token-metadata';
 import { InsufficientSolError } from '../utils/insufficientSolToast';
 
@@ -268,27 +267,16 @@ export async function copyTrendingToken(params: {
   let website: string | undefined;
 
   // Short-circuit: if the caller already handed us name + symbol + image (the
-  // typical case for cards in the trending list), skip both the pump.fun API
-  // roundtrip (3 endpoints × 3 retries — up to ~15 s for a non-pump coin) and
-  // the on-chain Metaplex read. Everything else in this section can be
-  // populated from the hint below.
+  // typical case for cards in the trending list), skip the on-chain Metaplex
+  // read. Everything else in this section can be populated from the hint below.
   const hintHasCore =
     !!params.sourceHint &&
     !!params.sourceHint.name?.trim() &&
     !!params.sourceHint.symbol?.trim() &&
     !!params.sourceHint.imageUri?.trim();
 
-  const pump = hintHasCore ? null : await getCoinDetails(params.sourceMint);
-  if (pump) {
-    name = pump.name;
-    symbol = pump.symbol.replace(/^\$/, '');
-    description = pump.description;
-    imageHttp = normalizeToHttp(pump.imageUri) ?? pump.imageUri;
-    sourceMetadataUri = normalizeToHttp(pump.metadataUri) ?? undefined;
-    twitter = pump.twitter;
-    telegram = pump.telegram;
-    website = pump.website;
-  } else if (!hintHasCore) {
+  // Card data (Dexscreener) covers most coins; otherwise read on-chain Metaplex metadata.
+  if (!hintHasCore) {
     const umiRead = createUmi(params.connection).use(mplTokenMetadata());
     const asset = await fetchDigitalAsset(umiRead, umiPublicKey(params.sourceMint)).catch(() => null);
     if (asset?.metadata) {
