@@ -344,24 +344,35 @@ function TokenAvatar({
   className?: string;
   textClassName?: string;
 }) {
-  if (imageUrl) {
-    return (
-      <img
-        src={imageUrl}
-        alt=""
-        className={`${className} rounded-full object-cover shrink-0 border border-[#212225]`}
-      />
-    );
-  }
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const hue = mint.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) % 360;
+  const showImage = !!imageUrl && failedUrl !== imageUrl;
+  const imageReady = showImage && loadedUrl === imageUrl;
   return (
-    <div
-      className={`${className} rounded-full flex items-center justify-center font-bold text-white shrink-0 ${textClassName}`}
-      style={{
-        background: `linear-gradient(135deg, hsl(${hue}, 65%, 42%), hsl(${(hue + 40) % 360}, 70%, 35%))`,
-      }}
-    >
-      {(symbol || '?').slice(0, 2).toUpperCase()}
+    <div className={`${className} relative rounded-full shrink-0 overflow-hidden`}>
+      {!imageReady && (
+        <div
+          className={`absolute inset-0 rounded-full flex items-center justify-center font-bold text-white ${textClassName}`}
+          style={{
+            background: `linear-gradient(135deg, hsl(${hue}, 65%, 42%), hsl(${(hue + 40) % 360}, 70%, 35%))`,
+          }}
+        >
+          {(symbol || '?').slice(0, 2).toUpperCase()}
+        </div>
+      )}
+      {showImage && (
+        <img
+          src={imageUrl}
+          alt=""
+          decoding="async"
+          onLoad={() => setLoadedUrl(imageUrl)}
+          onError={() => setFailedUrl(imageUrl)}
+          className={`absolute inset-0 w-full h-full rounded-full object-cover border border-[#212225] transition-opacity duration-150 ${
+            imageReady ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+      )}
     </div>
   );
 }

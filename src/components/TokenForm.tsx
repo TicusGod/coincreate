@@ -540,7 +540,7 @@ export default function TokenForm({ onGoToLiquidity }: { onGoToLiquidity: (mint:
                 <div className="pr-4">
                   <p className="text-[#fafafa] font-semibold text-sm">Modify Creator Information</p>
                   <p className="text-[#696e77] text-xs mt-0.5">
-                    Change the creator info in the metadata. Default is LaunchToken.
+                    Add your own creator name and website to the token metadata.
                   </p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">

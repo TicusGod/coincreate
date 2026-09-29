@@ -327,20 +327,6 @@ export default function CopyTrending({ onGoToLiquidity }: { onGoToLiquidity: (mi
     cache.set(token.id, promise);
   }, []);
 
-  // Eagerly prefetch metadata for the first few visible cards so a fast click
-  // on top-of-page tokens does not wait on Pinata even without a hover.
-  useEffect(() => {
-    if (!tokens.length) return;
-    const timers: number[] = [];
-    tokens.slice(0, 4).forEach((token, i) => {
-      const id = window.setTimeout(() => handlePrefetch(token), 150 + i * 120);
-      timers.push(id);
-    });
-    return () => {
-      timers.forEach((id) => window.clearTimeout(id));
-    };
-  }, [tokens, handlePrefetch]);
-
   const handleCopy = async (token: TrendingToken) => {
     if (!connected) {
       connect();
