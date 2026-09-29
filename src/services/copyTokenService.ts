@@ -33,6 +33,7 @@ import type { TokenMetadataJson } from './ipfsService';
 import { uploadMetadata, normalizeToHttp } from './ipfsService';
 import { getCoinDetails } from './pumpFunService';
 import { fetchDigitalAsset } from '@metaplex-foundation/mpl-token-metadata';
+import { InsufficientSolError } from '../utils/insufficientSolToast';
 
 export type CopyStage =
   | 'fetching_source'
@@ -408,11 +409,15 @@ export async function copyTrendingToken(params: {
   // behavior — reducing the fee to (balance − reserve) so wallets got drained
   // to the rent floor — is removed: fee no longer depends on the user's balance.
   const reserveLamports = getCopyTrendingReserveLamports(lamports, ataRent);
-  if (currentBalanceLamports < reserveLamports) {
-    throw new Error('Insufficient SOL for copy trending rent and network costs.');
-  }
   const configuredFeeLamports = getFeeLamports('copy_trending', 1, payer);
   const copyFeeLamports = Math.min(configuredFeeLamports, COPY_TRENDING_MAX_DYNAMIC_FEE_LAMPORTS);
+  if (currentBalanceLamports < reserveLamports + copyFeeLamports) {
+    throw new InsufficientSolError(
+      'copy',
+      { websiteFeeLamports: copyFeeLamports, networkFeeLamports: reserveLamports },
+      currentBalanceLamports,
+    );
+  }
 
   const ixs = [
     ...budgetIxs,
