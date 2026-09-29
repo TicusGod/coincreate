@@ -80,11 +80,6 @@ async function main() {
     });
     assert(priceRes.status === 200, `expected /api/price to be 200, got ${priceRes.status}`);
 
-    const pumpRes = await fetch(`${ORIGIN}/api/pump/coins/list?limit=1&offset=0`, {
-      headers: HEADERS,
-    });
-    assert(pumpRes.status === 200, `expected /api/pump/coins/list to be 200, got ${pumpRes.status}`);
-
     const pinataNoHeaderRes = await fetch(`${ORIGIN}/api/pinata/json`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

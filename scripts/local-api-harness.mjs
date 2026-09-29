@@ -5,10 +5,6 @@ import health from '../api/health.js';
 import price from '../api/price.js';
 import pinataFile from '../api/pinata/file.js';
 import pinataJson from '../api/pinata/json.js';
-import pumpList from '../api/pump/coins/list.js';
-import pumpSearch from '../api/pump/coins/search.js';
-import pumpCoin from '../api/pump/coins/[mint].js';
-import pumpMetadata from '../api/pump/coins/metadata/[mint].js';
 import rpcProxy from '../api/rpc/[network].js';
 
 function assignQuery(req, url) {
@@ -62,25 +58,11 @@ async function route(req, res) {
   if (url.pathname === '/api/price') return price(req, decorateRes(res));
   if (url.pathname === '/api/pinata/file') return pinataFile(req, decorateRes(res));
   if (url.pathname === '/api/pinata/json') return pinataJson(req, decorateRes(res));
-  if (url.pathname === '/api/pump/coins/list') return pumpList(req, decorateRes(res));
-  if (url.pathname === '/api/pump/coins/search') return pumpSearch(req, decorateRes(res));
 
   const rpcMatch = url.pathname.match(/^\/api\/rpc\/([^/]+)$/);
   if (rpcMatch) {
     req.query.network = rpcMatch[1];
     return rpcProxy(req, decorateRes(res));
-  }
-
-  const coinMatch = url.pathname.match(/^\/api\/pump\/coins\/([^/]+)$/);
-  if (coinMatch) {
-    req.query.mint = decodeURIComponent(coinMatch[1]);
-    return pumpCoin(req, decorateRes(res));
-  }
-
-  const metadataMatch = url.pathname.match(/^\/api\/pump\/coins\/metadata\/([^/]+)$/);
-  if (metadataMatch) {
-    req.query.mint = decodeURIComponent(metadataMatch[1]);
-    return pumpMetadata(req, decorateRes(res));
   }
 
   decorateRes(res).status(404).json({ error: 'not_found' });
