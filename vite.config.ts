@@ -3,9 +3,6 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
-/** Local dev: mirror Vercel /api/pump/* routes to Pump upstreams. */
-const ADV = 'https://advanced-api-v2.pump.fun';
-const V3 = 'https://frontend-api-v3.pump.fun';
 const PUBLIC_MAINNET_RPC = 'https://api.mainnet-beta.solana.com';
 const PUBLIC_DEVNET_RPC = 'https://api.devnet.solana.com';
 
@@ -27,41 +24,7 @@ function proxyToAbsoluteUrl(targetUrl: string, extraHeaders: Record<string, stri
 
 export default defineConfig(({ mode }) => {
   const serverEnv = loadEnv(mode, process.cwd(), '');
-  const pumpHeaders =
-    typeof serverEnv.PUMPFUN_AUTH === 'string' && serverEnv.PUMPFUN_AUTH.trim()
-      ? { Authorization: `Bearer ${serverEnv.PUMPFUN_AUTH.trim()}` }
-      : {};
-
-  const devProxy: Record<string, string | ProxyOptions> = {
-    '^/api/pump/coins/list': {
-      target: ADV,
-      changeOrigin: true,
-      secure: true,
-      headers: pumpHeaders,
-      rewrite: (path) => path.replace(/^\/api\/pump\/coins\/list/, '/coins/list'),
-    },
-    '^/api/pump/coins/metadata/': {
-      target: ADV,
-      changeOrigin: true,
-      secure: true,
-      headers: pumpHeaders,
-      rewrite: (path) => path.replace(/^\/api\/pump\/coins/, ''),
-    },
-    '^/api/pump/coins/search': {
-      target: V3,
-      changeOrigin: true,
-      secure: true,
-      headers: pumpHeaders,
-      rewrite: (path) => path.replace(/^\/api\/pump\/coins\/search/, '/coins/search'),
-    },
-    '^/api/pump/coins/(?!list|search|metadata)([^/]+)': {
-      target: V3,
-      changeOrigin: true,
-      secure: true,
-      headers: pumpHeaders,
-      rewrite: (path) => path.replace(/^\/api\/pump\/coins\//, '/coins/'),
-    },
-  };
+  const devProxy: Record<string, string | ProxyOptions> = {};
 
   devProxy['^/api/rpc/mainnet-beta$'] = proxyToAbsoluteUrl(PUBLIC_MAINNET_RPC);
   devProxy['^/api/rpc/devnet$'] = proxyToAbsoluteUrl(PUBLIC_DEVNET_RPC);

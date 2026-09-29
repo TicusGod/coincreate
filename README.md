@@ -1,6 +1,6 @@
 # Memecoin launcher (Solana)
 
-Vite + React + TypeScript SPA for creating SPL tokens with Metaplex metadata, optional pump.fun trending copy, and Raydium CPMM liquidity. Wallet flows use `@solana/wallet-adapter`; configuration is env-driven.
+Vite + React + TypeScript SPA for creating SPL tokens with Metaplex metadata, Dexscreener trending copy, and Raydium CPMM liquidity. Wallet flows use `@solana/wallet-adapter`; configuration is env-driven.
 
 ## Prerequisites
 
@@ -68,7 +68,6 @@ Optional fee overrides: see `.env.example` (`VITE_FEE_*`).
 
 ## External APIs
 
-- **Pump.fun (browser vs Postman):** Pump’s `*.pump.fun` APIs typically **omit `Access-Control-Allow-Origin`**, so the app calls same-origin **`/api/pump/*`** (Vite dev proxy + Vercel `api/pump/**/*.js` serverless routes). Optional `PUMPFUN_AUTH` is injected server-side when set.
 - **Jupiter price hints:** the browser calls same-origin **`/api/price`**; optional `JUPITER_PRICE_API_KEY` stays server-side.
 - **Pinata uploads:** the browser calls same-origin **`/api/pinata/*`**; `PINATA_JWT` stays server-side.
 
