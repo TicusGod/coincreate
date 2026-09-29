@@ -62,10 +62,6 @@ export function getServerPinataJwt() {
   return jwt;
 }
 
-export function getServerPumpfunAuth() {
-  return readServerEnv('PUMPFUN_AUTH');
-}
-
 export function getServerPriceApi() {
   return normalizePriceApiUrl(readServerEnv('PRICE_API'));
 }
