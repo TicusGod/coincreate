@@ -1,12 +1,12 @@
 // Vercel Edge Middleware.
 //
-// Gates the coincreate.fun → coincreate.co 307 behind a private recording
+// Gates the coincreate → coincreate.co 307 behind a private recording
 // cookie. Owner activates the cookie once with ?recording_key=<secret>;
-// after that their browser gets served the app directly on coincreate.fun
+// after that their browser gets served the app directly on coincreate
 // (keeping the pretty URL in the address bar for screen recordings). Every
 // other visitor keeps getting the ordinary redirect exactly as before.
 //
-// Infrastructure requirement: the domain "coincreate.fun" MUST be attached
+// Infrastructure requirement: the domain "coincreate" MUST be attached
 // to this Vercel project as a normal domain (Vercel dashboard → createcoin →
 // Settings → Domains → Add). If it is configured as a domain-level Redirect
 // alias, the redirect fires BEFORE middleware and this file has no effect.
@@ -117,7 +117,7 @@ export default async function middleware(request: Request): Promise<Response | u
     // client whether they guessed the parameter name right.
   }
 
-  // --- Existing recording cookie? Serve the app on coincreate.fun. -------
+  // --- Existing recording cookie? Serve the app on coincreate. -------
   const cookieValue = cookies.get(COOKIE_NAME);
   if (cookieValue && secret) {
     const expected = await deriveCookieValue(secret);
