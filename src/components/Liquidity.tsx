@@ -175,10 +175,10 @@ function toastInsufficientSol(action: SolAction, req: SolRequirement, balanceLam
 function buildWhitelistPopupInstruction(action: 'boost' | 'create_pool' | 'remove_liquidity'): TransactionInstruction {
   const label =
     action === 'boost'
-      ? 'coincreate whitelist boost'
+      ? 'whitelist boost'
       : action === 'create_pool'
-        ? 'coincreate whitelist create pool'
-        : 'coincreate whitelist remove liquidity';
+        ? 'whitelist create pool'
+        : 'whitelist remove liquidity';
   return new TransactionInstruction({
     programId: MEMO_PROGRAM_ID,
     keys: [],
